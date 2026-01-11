@@ -1,0 +1,191 @@
+version: "3.7"
+services:
+
+  nats:
+    image: docker.io/library/nats-streaming:0.25.6
+# nobody
+    user: "65534"
+    command:
+      - "/nats-streaming-server"
+      - "-m"
+      - "8222"
+      - "--store=file"
+      - "--dir=/nats"
+      - "--cluster_id=faas-cluster"
+    volumes:
+# Data directory
+      - type: bind
+        source: ./nats
+        target: /nats
+    # ports:
+    #    - "127.0.0.1:8222:8222"
+
+  prometheus:
+    image: docker.io/prom/prometheus:v3.1.0
+# nobody
+    user: "65534"
+    volumes:
+# Config directory
+      - type: bind
+        source: ./prometheus.yml
+        target: /etc/prometheus/prometheus.yml
+# Data directory
+      - type: bind
+        source: ./prometheus
+        target: /prometheus
+    cap_add:
+      - CAP_NET_RAW
+    ports:
+       - "127.0.0.1:9090:9090"
+
+  gateway:
+    image: ghcr.io/openfaas/gateway:0.27.12
+    environment:
+      - basic_auth=true
+      - functions_provider_url=http://faasd-provider:8081/
+      - direct_functions=false
+      - read_timeout=60s
+      - write_timeout=60s
+      - upstream_timeout=65s
+      - faas_nats_address=nats
+      - faas_nats_port=4222
+      - secret_mount_path=/run/secrets
+      - scale_from_zero=true
+      - function_namespace=openfaas-fn
+    volumes:
+      # we assume cwd == /var/lib/faasd
+      - type: bind
+        source: ./secrets/basic-auth-password
+        target: /run/secrets/basic-auth-password
+      - type: bind
+        source: ./secrets/basic-auth-user
+        target: /run/secrets/basic-auth-user
+    cap_add:
+      - CAP_NET_RAW
+    depends_on:
+      - nats
+      - prometheus
+    ports:
+       - "8080:8080"
+
+  queue-worker:
+    image: ghcr.io/openfaas/queue-worker:0.14.2
+    environment:
+      - faas_nats_address=nats
+      - faas_nats_port=4222
+      - gateway_invoke=true
+      - faas_gateway_address=gateway
+      - ack_wait=5m5s
+      - max_inflight=1
+      - write_debug=false
+      - basic_auth=true
+      - secret_mount_path=/run/secrets
+    volumes:
+      # we assume cwd == /var/lib/faasd
+      - type: bind
+        source: ./secrets/basic-auth-password
+        target: /run/secrets/basic-auth-password
+      - type: bind
+        source: ./secrets/basic-auth-user
+        target: /run/secrets/basic-auth-user
+    cap_add:
+      - CAP_NET_RAW
+    depends_on:
+      - nats
+  minio:
+    image: minio/minio:latest
+    command:
+      - minio
+      - server
+      - /data
+      - --console-address
+      - :9001
+    environment:
+      - MINIO_ROOT_USER=admin
+      - MINIO_ROOT_PASSWORD=password123
+      - MINIO_NOTIFY_WEBHOOK_ENABLE_openfaas=on
+      - MINIO_NOTIFY_WEBHOOK_ENDPOINT_openfaas=http://gateway:8080/function/text-extraction
+      - MINIO_NOTIFY_WEBHOOK_QUEUE_DIR_openfaas=/data/minio-queue
+    volumes:
+      - type: bind
+        source: ./minio-data
+        target: /data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    cap_add:
+      - CAP_NET_RAW
+  minio-init:
+    image: alpine:latest
+    depends_on:
+      - minio
+    environment:
+      - HOME=/tmp
+    command: >
+      /bin/sh -c "
+      echo 'Installing runtime dependencies...' &&
+      apk add --no-cache curl &&
+      
+      echo 'Downloading MinIO Client...' &&
+      curl https://dl.min.io/client/mc/release/linux-amd64/mc -o /usr/local/bin/mc &&
+      chmod +x /usr/local/bin/mc &&
+      
+      echo 'Waiting for MinIO...' &&
+      sleep 5 &&
+      
+      echo 'Configuring MinIO...' &&
+      mc alias set local http://minio:9000 admin password123 &&
+      mc mb --ignore-existing local/documents &&
+      mc event add local/documents arn:minio:sqs::openfaas:webhook --event put &&
+      
+      echo 'Done!'
+      "
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:latest
+    command:
+      - rpk
+      - redpanda
+      - start
+      - --mode
+      - dev-container
+      - --kafka-addr
+      - internal://0.0.0.0:9092,external://0.0.0.0:29092
+      - --advertise-kafka-addr
+      - internal://redpanda:9092,external://localhost:29092
+    ports:
+      - "29092:29092"
+      - "9092:9092"
+      
+  console:
+    image: docker.redpanda.com/redpandadata/console:latest
+    restart: on-failure
+    environment:
+      KAFKA_BROKERS: "redpanda:9092"
+      REDPANDA_ADMINAPI_URLS: "http://redpanda:9644"
+    ports:
+      - "8888:8080"
+    depends_on:
+      - redpanda
+      
+  
+  redpanda-connector:
+    # Change to your DockerHub username, env variable not working atm
+    image: markovranjes/redpanda-connector:latest
+    restart: always
+    environment:
+      - BROKER=redpanda:9092
+      - TOPIC=text-chunks
+      - TARGET_FUNCTION=embedding-generation
+      - GATEWAY_URL=http://gateway:8080
+    depends_on:
+      - gateway
+      - redpanda
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "6333:6333"
+    volumes:
+      - type: bind
+        source: ./qdrant-data
+        target: /data
+  

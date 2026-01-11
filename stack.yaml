@@ -1,0 +1,33 @@
+version: 1.0
+provider:
+  name: openfaas
+  gateway: http://127.0.0.1:8080
+functions:
+  text-extraction:
+    lang: python3-http
+    handler: ./text-extraction
+    image: ${DOCKER_USER}/text-extraction:latest
+    environment:
+      MINIO_ENDPOINT: "http://minio:9000"
+      MINIO_ACCESS_KEY: "admin"
+      MINIO_SECRET_KEY: "password123"
+      REDPANDA_BROKER: "redpanda:9092"
+      KAFKA_TOPIC: "text-chunks"
+      CHUNK_SIZE: "500"
+      PYTHONUNBUFFERED: "1"
+
+  embedding-generation:
+    lang: python3-http-debian
+    handler: ./embedding-generation
+    image: ${DOCKER_USER}/embedding-generation:latest
+    annotations:
+      topic: text-chunks
+    environment:
+      QDRANT_HOST: "qdrant"
+      QDRANT_PORT: "6333"
+      PYTHONUNBUFFERED: "1"
+    limits:
+      memory: 1024M
+    requests:
+      memory: 512M
+
