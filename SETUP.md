@@ -195,4 +195,102 @@ Open a browser in Windows and navigate to: `http://localhost:8080/ui/`
 * **User:** `admin`
 * **Password:** (The password retrieved in step 5)
 
+---
+
+## Adding Non-Serverless Services
+
+If you want to extend the setup with additional non-serverless services (such as Kafka brokers, databases, or custom microservices), you can do so by modifying the `docker-compose.yaml` file included in this repository.
+
+1. **Extend the docker-compose.yaml:**
+Edit the `docker-compose.yaml` file in this project directory to add your custom services and configurations.
+
+2. **Replace the faasd docker-compose.yaml:**
+Once you've made your changes, replace the existing `docker-compose.yaml` running with faasd:
+```bash
+sudo cp docker-compose.yaml /var/lib/faasd/docker-compose.yaml
+sudo systemctl restart faasd
+
+```
+
+
+This will integrate your custom services with the existing faasd infrastructure.
+
+---
+
+## Update Docker Hub Username
+
+The `docker-compose.yaml` file in this repository contains a hardcoded Docker Hub username (`markovranjes`). Before deploying any custom images, **replace this with your own Docker Hub username**:
+
+```yaml
+# Find this line in docker-compose.yaml:
+image: markovranjes/redpanda-connector:latest
+
+# Replace "markovranjes" with your Docker Hub username:
+image: <your-dockerhub-username>/redpanda-connector:latest
+
+```
+
+This ensures that when you build and push custom container images, they reference the correct Docker Hub account.
+
+---
+
+## Running the Environment for the First Time
+
+Follow these steps to deploy the entire stack, including custom services and serverless functions.
+
+### Step 1: Build & Push Custom Docker Images (Windows)
+
+From your local Windows machine (not WSL), build and push the custom services to your Docker Hub account:
+
+```bash
+# Navigate to the redpanda-connector directory
+cd redpanda-connector
+
+# Build the Docker image
+docker build -t <your-dockerhub-username>/redpanda-connector:latest .
+
+# Push to Docker Hub
+docker push <your-dockerhub-username>/redpanda-connector:latest
+
+```
+
+> **Note:** Make sure you're logged in to Docker Hub locally. Run `docker login` if needed.
+
+### Step 2: Publish Serverless Functions (Windows)
+
+Still from Windows, publish the serverless function images using the OpenFaaS CLI from this repository:
+
+```bash
+./faas-cli.exe publish -f stack.yaml
+
+```
+
+> **Note:** Use `faas-cli.exe` from this repository directory, not a globally installed version. This command builds and pushes all functions defined in `stack.yaml` to your Docker Hub account.
+
+### Step 3: Start Services in WSL
+
+Switch to your Ubuntu (WSL) terminal and restart the faasd services to apply any configuration changes:
+
+```bash
+sudo systemctl restart faasd
+
+```
+
+### Step 4: Deploy Serverless Functions (WSL)
+
+Finally, deploy your serverless functions to the running faasd environment:
+
+```bash
+faas-cli deploy -f stack.yaml
+
+```
+
+Monitor the deployment progress. Once complete, verify your functions are deployed:
+
+```bash
+faas-cli list
+
+```
+
+All services should now be operational and ready for use.
 
