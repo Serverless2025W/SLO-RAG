@@ -278,7 +278,14 @@ sudo systemctl restart faasd
 
 ### Step 4: Deploy Serverless Functions (WSL)
 
-Finally, deploy your serverless functions to the running faasd environment:
+Before deploying, set the `DOCKER_USER` environment variable to your Docker Hub username:
+
+```bash
+export DOCKER_USER=<your-dockerhub-username>
+
+```
+
+Then deploy your serverless functions to the running faasd environment:
 
 ```bash
 faas-cli deploy -f stack.yaml
