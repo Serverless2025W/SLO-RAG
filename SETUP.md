@@ -129,7 +129,7 @@ cd faasd
 3. **Verify Services:**
 Check that the daemon is active:
 ```bash
-sudo systemctl status faasd provider
+sudo systemctl status faasd faasd-provider
 
 ```
 
@@ -157,12 +157,20 @@ sudo cat /var/lib/faasd/secrets/basic-auth-password
 
 *Copy the output string to your clipboard.*
 3. **Log In:**
-Run the login command, pasting your password where indicated:
+You can log in using either method:
+
+**Method 1 (Simpler):** Pipe the password directly:
+```bash
+sudo cat /var/lib/faasd/secrets/basic-auth-password | faas-cli login -s
+```
+
+**Method 2:** Use the password you copied:
 ```bash
 # Replace <your-password> with the string you just copied
 echo -n <your-password> | faas-cli login --username admin --password-stdin
-
 ```
+
+> **Note:** Method 1 automatically saves credentials to `~/.openfaas/config.yml`.
 
 
 
@@ -187,9 +195,60 @@ echo "Hello World!" | faas-cli invoke figlet
 
 
 3. **Access UI:**
-Open a browser in Windows and navigate to: `http://localhost:8080/ui/`
-* **User:** `admin`
-* **Password:** (The password retrieved in step 5)
+You can access the OpenFaaS dashboard in several ways:
+
+**Option 1: Using localhost (Windows/WSL):**
+Open a browser and navigate to: `http://localhost:8080/ui/`
+
+**Option 2: Using WSL IP address (Windows):**
+If localhost doesn't work, get your WSL IP address:
+```bash
+hostname -I
+# Example output: 172.26.19.196
+```
+Then navigate to: `http://[WSL-IP]:8080/ui/` (e.g., `http://172.26.19.196:8080/ui/`)
+
+**Option 3: Using localhost (Linux):**
+Open a browser and navigate to: `http://localhost:8080/ui/`
+
+* **Username:** `admin`
+* **Password:** Retrieve it with: `sudo cat /var/lib/faasd/secrets/basic-auth-password`
+
+---
+
+## Monitoring and Troubleshooting
+
+Useful commands for monitoring and debugging your faasd installation:
+
+### View Running Containers
+
+Since faasd uses `containerd` (not Docker), use the `ctr` command to view containers:
+
+```bash
+sudo ctr -n openfaas tasks ls
+```
+
+### View System Logs
+
+Check OpenFaaS system logs:
+
+```bash
+sudo journalctl -t openfaas -n 50 --no-pager
+```
+
+For real-time log monitoring:
+
+```bash
+sudo journalctl -u faasd -f
+```
+
+### Check Service Status
+
+Verify that all services are running:
+
+```bash
+sudo systemctl status faasd faasd-provider
+```
 
 ---
 
@@ -234,7 +293,11 @@ This ensures that when you build and push custom container images, they referenc
 
 Follow these steps to deploy the entire stack, including custom services and serverless functions.
 
-### Step 1: Build & Push Custom Docker Images (Windows)
+---
+
+### For Windows (WSL) Users
+
+#### Step 1: Build & Push Custom Docker Images (Windows)
 
 From your local Windows machine (not WSL), build and push the custom services to your Docker Hub account:
 
@@ -252,18 +315,30 @@ docker push <your-dockerhub-username>/redpanda-connector:latest
 
 > **Note:** Make sure you're logged in to Docker Hub locally. Run `docker login` if needed.
 
-### Step 2: Publish Serverless Functions (Windows)
+#### Step 2: Publish Serverless Functions (Windows)
 
-Still from Windows, publish the serverless function images using the OpenFaaS CLI from this repository:
+Before publishing, set the `DOCKER_USER` environment variable to your Docker Hub username. In PowerShell:
+
+```powershell
+$env:DOCKER_USER="<your-dockerhub-username>"
+```
+
+Or in Command Prompt:
+
+```cmd
+set DOCKER_USER=<your-dockerhub-username>
+```
+
+Then publish the serverless function images using the OpenFaaS CLI from this repository:
 
 ```bash
 ./faas-cli.exe publish -f stack.yaml
 
 ```
 
-> **Note:** Use `faas-cli.exe` from this repository directory, not a globally installed version. This command builds and pushes all functions defined in `stack.yaml` to your Docker Hub account.
+> **Note:** Use `faas-cli.exe` from this repository directory, not a globally installed version. This command builds and pushes all functions defined in `stack.yaml` to your Docker Hub account. The `DOCKER_USER` variable must be set before running this command.
 
-### Step 3: Start Services in WSL
+#### Step 3: Start Services in WSL
 
 Switch to your Ubuntu (WSL) terminal and restart the faasd services to apply any configuration changes:
 
@@ -272,7 +347,81 @@ sudo systemctl restart faasd
 
 ```
 
-### Step 4: Deploy Serverless Functions (WSL)
+#### Step 4: Deploy Serverless Functions (WSL)
+
+Before deploying, set the `DOCKER_USER` environment variable to your Docker Hub username:
+
+```bash
+export DOCKER_USER=<your-dockerhub-username>
+
+```
+
+Then deploy your serverless functions to the running faasd environment:
+
+```bash
+faas-cli deploy -f stack.yaml
+
+```
+
+Monitor the deployment progress. Once complete, verify your functions are deployed:
+
+```bash
+faas-cli list
+
+```
+
+All services should now be operational and ready for use.
+
+---
+
+### For Linux Users
+
+#### Step 1: Build & Push Custom Docker Images
+
+Build and push the custom services to your Docker Hub account:
+
+```bash
+# Navigate to the redpanda-connector directory
+cd redpanda-connector
+
+# Build the Docker image
+docker build -t <your-dockerhub-username>/redpanda-connector:latest .
+
+# Push to Docker Hub
+docker push <your-dockerhub-username>/redpanda-connector:latest
+
+```
+
+> **Note:** Make sure you're logged in to Docker Hub. Run `docker login` if needed.
+
+#### Step 2: Publish Serverless Functions
+
+Before publishing, set the `DOCKER_USER` environment variable to your Docker Hub username:
+
+```bash
+export DOCKER_USER=<your-dockerhub-username>
+
+```
+
+Then publish the serverless function images using the OpenFaaS CLI:
+
+```bash
+faas-cli publish -f stack.yaml
+
+```
+
+> **Note:** This command builds and pushes all functions defined in `stack.yaml` to your Docker Hub account. Make sure `faas-cli` is installed and in your PATH. The `DOCKER_USER` variable must be set before running this command.
+
+#### Step 3: Start Services
+
+Restart the faasd services to apply any configuration changes:
+
+```bash
+sudo systemctl restart faasd
+
+```
+
+#### Step 4: Deploy Serverless Functions
 
 Before deploying, set the `DOCKER_USER` environment variable to your Docker Hub username:
 
