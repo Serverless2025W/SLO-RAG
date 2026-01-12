@@ -1,7 +1,3 @@
-Here is the enhanced setup guide in Markdown format. You can copy and paste this directly into a `README.md` or documentation file.
-
----
-
 # Serverless Setup on Windows (WSL + Docker + faasd)
 
 This project utilizes a hybrid development environment designed to balance ease of use with performance. We use **Windows Subsystem for Linux 2 (WSL2)** to host `faasd` (the lightweight OpenFaaS daemon), which manages the serverless runtime. Simultaneously, we leverage **Docker Desktop on Windows** to handle the heavy lifting of building and managing container images.
