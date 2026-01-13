@@ -92,6 +92,7 @@ services:
       - CAP_NET_RAW
     depends_on:
       - nats
+
   minio:
     image: minio/minio:latest
     command:
@@ -115,6 +116,7 @@ services:
       - "9001:9001"
     cap_add:
       - CAP_NET_RAW
+
   minio-init:
     image: alpine:latest
     depends_on:
@@ -180,6 +182,7 @@ services:
     depends_on:
       - gateway
       - redpanda
+
   qdrant:
     image: qdrant/qdrant:latest
     ports:
@@ -188,4 +191,24 @@ services:
       - type: bind
         source: ./qdrant-data
         target: /data
-  
+
+  redis:
+    image: redis:alpine
+    # Persist data to a local folder named 'redis-data'
+    ports:
+      - "6379:6379"
+    volumes:
+      - type: bind
+        source: ./redis-data
+        target: /data
+    cap_add:
+      - CAP_NET_RAW
+
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    environment:
+      - REDIS_HOSTS=local:redis:6379
+    ports:
+      - "8082:8081"  # Mapped to 8082 on Windows to avoid conflicts
+    depends_on:
+      - redis
