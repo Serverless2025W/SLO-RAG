@@ -20,8 +20,6 @@ functions:
     lang: python3-http-debian
     handler: ./embedding-generation
     image: ${DOCKER_USER}/embedding-generation:latest
-    annotations:
-      topic: text-chunks
     environment:
       QDRANT_HOST: "qdrant"
       QDRANT_PORT: "6333"
@@ -30,4 +28,14 @@ functions:
       memory: 1024M
     requests:
       memory: 512M
+
+  conversation-manager:
+    lang: python3-http
+    handler: ./conversation-manager
+    image: ${DOCKER_USER}/conversation-manager:latest
+
+  context-summarizer:
+    lang: python3-http
+    handler: ./context-summarizer
+    image: ${DOCKER_USER}/context-summarizer:latest
 

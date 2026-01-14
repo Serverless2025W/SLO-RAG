@@ -2,3 +2,7 @@ template
 build
 .secrets
 faasd/
+
+.venv/
+**/__pycache__/
+**/pytest_cache/

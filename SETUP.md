@@ -1,4 +1,4 @@
-# Serverless Setup on Windows (WSL + Docker + faasd)
+# Serverless Setup on Windows and Linux (WSL + Docker + faasd)
 
 This project utilizes a hybrid development environment designed to balance ease of use with performance. We use **Windows Subsystem for Linux 2 (WSL2)** to host `faasd` (the lightweight OpenFaaS daemon), which manages the serverless runtime. Simultaneously, we leverage **Docker Desktop on Windows** to handle the heavy lifting of building and managing container images.
 
@@ -9,12 +9,23 @@ This project utilizes a hybrid development environment designed to balance ease 
 * **faasd:** A single-binary version of OpenFaaS. It uses `containerd` directly (skipping Kubernetes) for a highly efficient local serverless experience.
 
 ---
+## [Linux] Quick setup script
 
-## Prerequisites
+```bash
+# run setup script
+./setup_faasd.sh
+
+# check status of faasd
+./check_faasd_status.sh
+```
+
+---
+
+## [Windows] Prerequisites (WSL + Docker Desktop)
 
 Please set up the components in the exact order listed below to ensure proper networking and permissions.
 
-### 1. Install WSL 2 (Ubuntu)
+### [Windows] 1. Install WSL 2 (Ubuntu)
 
 We need a robust Linux environment to run the serverless control plane.
 
@@ -29,7 +40,7 @@ wsl --install -d Ubuntu
 3. **Restart:** Restart your computer if prompted by Windows.
 4. **Initialize:** Open the "Ubuntu" app from your Start menu. Wait for the initialization to finish and create your UNIX username and password when prompted.
 
-### 2. Configure Systemd (Critical Step)
+### [Windows] 2. Configure Systemd (Critical Step)
 
 `faasd` relies on `systemd` to manage its services. By default, older WSL setups used `init`. We must ensure `systemd` is active.
 
@@ -72,7 +83,7 @@ wsl --shutdown
 
 Re-open your Ubuntu terminal.
 
-### 3. Install & Connect Docker Desktop
+### [Windows] 3. Install & Connect Docker Desktop
 
 We use Docker Desktop on Windows to facilitate image building. The "WSL Integration" feature bridges the Docker engine on Windows into your Ubuntu shell.
 
@@ -101,9 +112,9 @@ docker ps
 
 ---
 
-## Installation
+## [Windows] Installation (WSL)
 
-### 4. Install faasd
+### [Windows] 4. Install faasd (inside WSL)
 
 Now we install the runtime that will actually execute your functions. This script installs `containerd`, CNI networking plugins, and the `faasd` binary.
 
@@ -136,7 +147,7 @@ sudo systemctl status faasd faasd-provider
 
 You should see both services listed as `active (running)`.
 
-### 5. Install the CLI & Log In
+### [Windows] 5. Install the CLI & Log In (inside WSL)
 
 You need the OpenFaaS CLI (`faas-cli`) to deploy and invoke functions.
 
@@ -176,7 +187,7 @@ echo -n <your-password> | faas-cli login --username admin --password-stdin
 
 ---
 
-## Validation
+## [Both] Validation
 
 To ensure everything is connected, let's deploy a test function.
 
@@ -216,7 +227,7 @@ Open a browser and navigate to: `http://localhost:8080/ui/`
 
 ---
 
-## Monitoring and Troubleshooting
+## [Both] Monitoring and Troubleshooting
 
 Useful commands for monitoring and debugging your faasd installation:
 
@@ -252,7 +263,7 @@ sudo systemctl status faasd faasd-provider
 
 ---
 
-## Adding Non-Serverless Services
+## [Both] Adding Non-Serverless Services
 
 If you want to extend the setup with additional non-serverless services (such as Kafka brokers, databases, or custom microservices), you can do so by modifying the `docker-compose.yaml` file included in this repository.
 
@@ -272,7 +283,7 @@ This will integrate your custom services with the existing faasd infrastructure.
 
 ---
 
-## Update Docker Hub Username
+## [Both] Update Docker Hub Username
 
 The `docker-compose.yaml` file in this repository contains a hardcoded Docker Hub username (`markovranjes`). Before deploying any custom images, **replace this with your own Docker Hub username**:
 
@@ -289,13 +300,13 @@ This ensures that when you build and push custom container images, they referenc
 
 ---
 
-## Running the Environment for the First Time
+## [Windows + Linux] Running the Environment for the First Time
 
 Follow these steps to deploy the entire stack, including custom services and serverless functions.
 
 ---
 
-### For Windows (WSL) Users
+### [Windows] For Windows (WSL) Users
 
 #### Step 1: Build & Push Custom Docker Images (Windows)
 
@@ -374,7 +385,7 @@ All services should now be operational and ready for use.
 
 ---
 
-### For Linux Users
+### [Linux] For Linux Users
 
 #### Step 1: Build & Push Custom Docker Images
 
@@ -446,3 +457,101 @@ faas-cli list
 
 All services should now be operational and ready for use.
 
+
+---
+## [Both] Virtual environment
+
+```bash
+# create virtual environment
+python3 -m venv .venv
+
+# activate
+source .venv/bin/activate
+
+# install dependencies
+pip install -r redpanda-connector/requirements.txt
+
+# deactivate
+deactivate
+```
+
+---
+
+## [Both] Testing Manual
+
+
+### Unit and Integration Tests
+
+First activate virtual environment.
+
+```bash
+# run all tests
+pytest -q
+
+# run specific module
+pytest -q redpanda-connector 
+
+# run specific test file
+pytest -q redpanda-connector -m integration
+```
+
+
+---
+
+## [Both] Port Forwarding for VM Access
+
+If you are running the services on a VM and want to access them from your local browser, you need to set up SSH port forwarding.
+
+### Services and Ports
+
+The following services expose ports that you may want to access:
+
+- **MinIO Console:** Port 9001 (Web UI)
+- **MinIO API:** Port 9000 (S3 API)
+- **Redpanda Console:** Port 8888 (Web UI)
+- **Redpanda Kafka:** Port 29092 (External Kafka endpoint)
+- **OpenFaaS Gateway:** Port 8080 (Web UI and API)
+- **Redis:** Port 6379 (Redis CLI access)
+- **Qdrant:** Port 6333 (Web UI and API)
+- **Prometheus:** Port 9090 (Web UI)
+
+### SSH Port Forwarding (Local to VM)
+
+From your local machine, establish SSH port forwarding to the VM:
+
+```bash
+# Forward all commonly used ports
+ssh -L 9001:localhost:9001 \
+    -L 9000:localhost:9000 \
+    -L 8888:localhost:8888 \
+    -L 29092:localhost:29092 \
+    -L 8080:localhost:8080 \
+    -L 6379:localhost:6379 \
+    -L 6333:localhost:6333 \
+    -L 9090:localhost:9090 \
+    <user>@<vm-ip-or-hostname>
+```
+
+Or forward individual ports as needed:
+
+```bash
+# MinIO Console
+ssh -L 9001:localhost:9001 <user>@<vm-ip-or-hostname>
+
+# Redpanda Console
+ssh -L 8888:localhost:8888 <user>@<vm-ip-or-hostname>
+
+# OpenFaaS Gateway
+ssh -L 8080:localhost:8080 <user>@<vm-ip-or-hostname>
+```
+
+### Accessing Services
+
+Once port forwarding is established, you can access services from your local browser:
+
+- **MinIO Console:** http://localhost:9001 (Username: `admin`, Password: `password123`)
+- **MinIO API:** http://localhost:9000
+- **Redpanda Console:** http://localhost:8888
+- **OpenFaaS Gateway UI:** http://localhost:8080/ui/
+- **Prometheus:** http://localhost:9090
+- **Qdrant:** http://localhost:6333

@@ -1,9 +1,10 @@
-version: "3.7"
+version: "3.8"
+
 services:
 
   nats:
     image: docker.io/library/nats-streaming:0.25.6
-# nobody
+    # nobody
     user: "65534"
     command:
       - "/nats-streaming-server"
@@ -13,7 +14,7 @@ services:
       - "--dir=/nats"
       - "--cluster_id=faas-cluster"
     volumes:
-# Data directory
+      # Data directory
       - type: bind
         source: ./nats
         target: /nats
@@ -22,14 +23,14 @@ services:
 
   prometheus:
     image: docker.io/prom/prometheus:v3.1.0
-# nobody
+    # nobody
     user: "65534"
     volumes:
-# Config directory
+      # Config directory
       - type: bind
         source: ./prometheus.yml
         target: /etc/prometheus/prometheus.yml
-# Data directory
+      # Data directory
       - type: bind
         source: ./prometheus
         target: /prometheus
@@ -168,18 +169,33 @@ services:
       - redpanda
       
   
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - type: bind
+        source: ./redis-data
+        target: /data
+    command: redis-server --appendonly yes
+    restart: always
   redpanda-connector:
     # Change to your DockerHub username, env variable not working atm
-    image: markovranjes/redpanda-connector:latest
+    image: nikolalukicc/redpanda-connector:latest
     restart: always
     environment:
       - BROKER=redpanda:9092
-      - TOPIC=text-chunks
+      - TOPICS=text-chunks,conversation-events,llm-responses,summarization-triggers
       - TARGET_FUNCTION=embedding-generation
       - GATEWAY_URL=http://gateway:8080
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - CONSUMER_GROUP=faasd-connector-group
     depends_on:
       - gateway
       - redpanda
+      - redis
   qdrant:
     image: qdrant/qdrant:latest
     ports:
@@ -188,4 +204,3 @@ services:
       - type: bind
         source: ./qdrant-data
         target: /data
-  
