@@ -6,3 +6,7 @@ faasd/
 .venv/
 **/__pycache__/
 **/pytest_cache/
+
+minio-data/
+qdrant-data/
+redis-data/
