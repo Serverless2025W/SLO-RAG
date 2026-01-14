@@ -169,15 +169,13 @@ services:
     depends_on:
       - redpanda
       
-  
   redpanda-connector:
     # Change to your DockerHub username, env variable not working atm
-    image: markovranjes/redpanda-connector:latest
+    image: alajdza/redpanda-connector:latest
     restart: always
     environment:
       - BROKER=redpanda:9092
-      - TOPIC=text-chunks
-      - TARGET_FUNCTION=embedding-generation
+      - ROUTE_MAP=text-chunks:embedding-generation;rag-queries:inference;update-state:state-management;summarize-doc:context-summary
       - GATEWAY_URL=http://gateway:8080
     depends_on:
       - gateway
