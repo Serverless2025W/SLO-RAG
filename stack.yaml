@@ -25,6 +25,8 @@ functions:
     environment:
       QDRANT_HOST: "qdrant"
       QDRANT_PORT: "6333"
+      COLLECTION_NAME: "embeddings"
+      VECTOR_SIZE: "384"
       PYTHONUNBUFFERED: "1"
     limits:
       memory: 1024M

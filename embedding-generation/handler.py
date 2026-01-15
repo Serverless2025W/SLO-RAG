@@ -12,12 +12,12 @@ def log(message):
 log("Loading FastEmbed Model...")
 embedding_model = TextEmbedding()
 
-qdrant_host = os.environ.get("QDRANT_HOST", "qdrant")
-qdrant_port = int(os.environ.get("QDRANT_PORT", 6333))
-client = QdrantClient(host=qdrant_host, port=qdrant_port)
+QDRANT_HOST = os.environ.get("QDRANT_HOST", "qdrant")
+QDRANT_PORT = int(os.environ.get("QDRANT_PORT", 6333))
+client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
 
-COLLECTION_NAME = "documents"
-VECTOR_SIZE = 384  # BGE-Small embedding size
+COLLECTION_NAME = os.environ.get("COLLECTION_NAME", "embeddings")
+VECTOR_SIZE = int(os.environ.get("VECTOR_SIZE", 384))
 
 try:
     client.get_collection(COLLECTION_NAME)
