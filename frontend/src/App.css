@@ -717,6 +717,38 @@
   text-align: right;
 }
 
+.message-model {
+  color: #00d4ff;
+  font-size: 0.75rem;
+  margin-top: 0.5rem;
+  opacity: 0.8;
+}
+
+.message-sources {
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+}
+
+.message-sources summary {
+  color: #888;
+  cursor: pointer;
+  user-select: none;
+}
+
+.message-sources summary:hover {
+  color: #00d4ff;
+}
+
+.message-sources ul {
+  margin: 0.5rem 0 0 0;
+  padding-left: 1.2rem;
+  color: #777;
+}
+
+.message-sources li {
+  margin-bottom: 0.25rem;
+}
+
 .message.loading {
   padding: 1rem;
 }

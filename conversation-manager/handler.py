@@ -319,7 +319,8 @@ def handle(req, context):
         if not session_id:
             return {"statusCode": 400, "body": json.dumps({"error": "session_id required"})}
         history = get_conversation_history(session_id)
-        return {"statusCode": 200, "body": {"messages": history}}
+        log(f"Returning {len(history)} messages for session {session_id}")
+        return {"statusCode": 200, "body": json.dumps({"messages": history})}
 
     # Validate
     is_valid, error_msg = validate_conversation_event(data)

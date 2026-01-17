@@ -19,13 +19,18 @@ export async function uploadToMinio(file) {
   return { filename: file.name, bucket };
 }
 
-export async function queryRAG(query) {
+export async function queryRAG(query, sessionId = null) {
   const url = `${config.openfaas.gateway}${config.openfaas.functions.queryEmbeddingRetrieval}`;
+
+  const payload = { query };
+  if (sessionId) {
+    payload.session_id = sessionId;
+  }
 
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query }),
+    body: JSON.stringify(payload),
   });
 
   if (!response.ok) {
@@ -172,6 +177,26 @@ export async function sendMessage(sessionId, content) {
   return response.json();
 }
 
+export async function storeMessage(sessionId, role, content) {
+  const url = `${config.openfaas.gateway}${config.openfaas.functions.conversationManager}`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      session_id: sessionId,
+      role: role,
+      content: content,
+      timestamp: new Date().toISOString()
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Store message failed: ${response.status}`);
+  }
+
+  return response.json();
+}
+
 export async function getConversationHistory(sessionId) {
   const url = `${config.openfaas.gateway}${config.openfaas.functions.conversationManager}`;
   const response = await fetch(url, {
@@ -188,5 +213,14 @@ export async function getConversationHistory(sessionId) {
   }
 
   const data = await response.json();
-  return data.body?.messages || [];
+
+  // Handle different response formats
+  if (data.messages) {
+    return data.messages;
+  }
+  if (data.body) {
+    const body = typeof data.body === 'string' ? JSON.parse(data.body) : data.body;
+    return body.messages || [];
+  }
+  return [];
 }

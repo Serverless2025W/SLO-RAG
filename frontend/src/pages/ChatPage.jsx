@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useSession } from '../context/SessionContext';
-import { sendMessage, getConversationHistory } from '../api';
+import { queryRAG, getConversationHistory, storeMessage } from '../api';
 import Layout from '../components/Layout';
 
 export default function ChatPage() {
@@ -40,8 +40,7 @@ export default function ChatPage() {
 
     const userMessage = {
       role: 'user',
-      content: trimmed,
-      timestamp: new Date().toISOString()
+      content: trimmed
     };
 
     setMessages(prev => [...prev, userMessage]);
@@ -50,15 +49,26 @@ export default function ChatPage() {
     setError(null);
 
     try {
-      const response = await sendMessage(username, trimmed);
+      // Store user message
+      storeMessage(username, 'user', trimmed).catch(err =>
+        console.log('Could not store user message:', err.message)
+      );
 
-      if (response.llm_response?.content) {
+      const response = await queryRAG(trimmed, username);
+
+      if (response.answer) {
         const assistantMessage = {
           role: 'assistant',
-          content: response.llm_response.content,
-          timestamp: new Date().toISOString()
+          content: response.answer,
+          model: response.model,
+          sources: response.sources
         };
         setMessages(prev => [...prev, assistantMessage]);
+
+        // Store assistant message
+        storeMessage(username, 'assistant', response.answer).catch(err =>
+          console.log('Could not store assistant message:', err.message)
+        );
       }
     } catch (err) {
       setError(err.message);
@@ -93,9 +103,23 @@ export default function ChatPage() {
               <div className="message-content">
                 {msg.content}
               </div>
-              {msg.timestamp && (
-                <div className="message-time">
-                  {new Date(msg.timestamp).toLocaleTimeString()}
+              {msg.model && (
+                <div className="message-model">
+                  Model: {msg.model}
+                </div>
+              )}
+              {msg.sources && msg.sources.length > 0 && (
+                <div className="message-sources">
+                  <details>
+                    <summary>Sources ({msg.sources.length})</summary>
+                    <ul>
+                      {msg.sources.map((src, i) => (
+                        <li key={i}>
+                          {src.filename} (chunk {src.chunk_index}, score: {src.score.toFixed(3)})
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
                 </div>
               )}
             </div>
