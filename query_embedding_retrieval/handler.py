@@ -34,29 +34,39 @@ def parse_input(req):
 
 def generate_embedding(text):
     embedding_gen = embedding_model.embed([text])
-    vector = list(next(embedding_gen))
+    vector = [float(x) for x in next(embedding_gen)]
     return vector
 
 
 def search_similar(query_vector, top_k=TOP_K):
-    results = client.search(
+    results = client.query_points(
         collection_name=COLLECTION_NAME,
-        query_vector=query_vector,
+        query=query_vector,
         limit=top_k
     )
-    return results
+    return results.points
 
 
 def format_results(results):
     formatted = []
     for result in results:
         formatted.append({
-            "score": result.score,
+            "score": float(result.score),
             "text": result.payload.get("text", ""),
             "filename": result.payload.get("filename", ""),
             "chunk_index": result.payload.get("chunk_index", 0)
         })
     return formatted
+
+
+def build_inference_payload(query, results):
+    """Build a minimal payload for LLM inference."""
+    context_chunks = [chunk['text'] for chunk in results]
+
+    return {
+        "query": query,
+        "context": context_chunks
+    }
 
 
 def handle(req, context):
@@ -65,17 +75,17 @@ def handle(req, context):
     try:
         query = parse_input(req)
         if not query:
-            return {"error": "No query provided"}
+            return json.dumps({"error": "No query provided"})
         log(f"Query: {query}")
     except Exception as e:
-        return {"error": f"Input parse error: {e}"}
+        return json.dumps({"error": f"Input parse error: {e}"})
 
     try:
         query_vector = generate_embedding(query)
         log(f"Generated embedding with {len(query_vector)} dimensions")
     except Exception as e:
         log(f"Embedding generation error: {e}")
-        return {"error": f"Embedding generation error: {e}"}
+        return json.dumps({"error": f"Embedding generation error: {e}"})
 
     try:
         results = search_similar(query_vector)
@@ -87,7 +97,9 @@ def handle(req, context):
             log(f"File: {chunk['filename']}, Chunk: {chunk['chunk_index']}")
             log(f"Text: {chunk['text'][:200]}...")
 
-        return {"status": "success", "results": formatted}
+        payload = build_inference_payload(query, formatted)
+
+        return json.dumps(payload)
     except Exception as e:
         log(f"Search error: {e}")
-        return {"error": f"Search error: {e}"}
+        return json.dumps({"error": f"Search error: {e}"})
