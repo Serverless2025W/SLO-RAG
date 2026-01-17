@@ -12,7 +12,7 @@ def log(msg):
 # Format: "topic_name:function_name;topic2:function2;..."
 # Default includes all topics for Workflows 1, 3, and 4
 ROUTE_MAP_RAW = os.getenv(
-    "ROUTE_MAP", 
+    "ROUTE_MAP",
     "text-chunks:embedding-generation;conversation-events:conversation-manager;llm-responses:conversation-manager;summarization-triggers:context-summarizer"
 )
 GATEWAY_URL = os.getenv("GATEWAY_URL", "http://gateway:8080")
@@ -31,18 +31,18 @@ def get_target_function(topic: str) -> str:
 def invoke_function(function_name: str, data: dict) -> dict:
     """
     Invoke OpenFaaS function via HTTP.
-    
+
     Args:
         function_name: Name of the function to invoke
         data: JSON payload to send
-    
+
     Returns:
         Response data as dict, or None on failure
     """
     url = f"{GATEWAY_URL}/function/{function_name}"
     try:
         response = requests.post(url, json=data, timeout=60)
-        
+
         if response.status_code == 200:
             log(f"Successfully invoked {function_name}: HTTP {response.status_code}")
             try:
@@ -70,23 +70,23 @@ def process_message(message) -> None:
             data = json.loads(payload.decode('utf-8'))
         else:
             data = payload
-        
+
         # Determine Target Function
         target_function = get_target_function(topic)
         if not target_function:
             log(f"Warning: No route defined for topic {topic}")
             return
-        
+
         log(f"Received: [{topic}] -> [{target_function}] payload={str(data)[:50]}...")
-        
+
         # Invoke Function
         result = invoke_function(target_function, data)
-        
+
         if result:
             log(f"Function {target_function} completed successfully")
         else:
             log(f"WARNING: Function {target_function} returned no result")
-        
+
     except json.JSONDecodeError as e:
         log(f"ERROR: Failed to parse JSON payload: {e}")
     except Exception as e:

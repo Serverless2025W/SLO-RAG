@@ -23,26 +23,24 @@ def get_embedding_model():
         embedding_model = TextEmbedding()
     return embedding_model
 
-def get_qdrant_client():
-    """Initialize Qdrant client and collection lazily."""
-    global client
-    if client is not None:
-        return client
-    qdrant_host = os.environ.get("QDRANT_HOST", "qdrant")
-    qdrant_port = int(os.environ.get("QDRANT_PORT", 6333))
-    client = QdrantClient(host=qdrant_host, port=qdrant_port)
-    try:
-        client.get_collection(COLLECTION_NAME)
-    except Exception:
-        log(f"Creating collection '{COLLECTION_NAME}'...")
-        client.create_collection(
-            collection_name=COLLECTION_NAME,
-            vectors_config=models.VectorParams(
-                size=VECTOR_SIZE,
-                distance=models.Distance.COSINE
-            )
+QDRANT_HOST = os.environ.get("QDRANT_HOST", "qdrant")
+QDRANT_PORT = int(os.environ.get("QDRANT_PORT", 6333))
+client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
+
+COLLECTION_NAME = os.environ.get("COLLECTION_NAME", "embeddings")
+VECTOR_SIZE = int(os.environ.get("VECTOR_SIZE", 384))
+
+try:
+    client.get_collection(COLLECTION_NAME)
+except Exception:
+    log(f"Creating collection '{COLLECTION_NAME}'...")
+    client.create_collection(
+        collection_name=COLLECTION_NAME,
+        vectors_config=models.VectorParams(
+            size=VECTOR_SIZE,
+            distance=models.Distance.COSINE
         )
-    return client
+    )
 
 
 def parse_input(req):
@@ -65,8 +63,7 @@ def parse_input(req):
 
 def generate_embedding(text_content):
     """Generate embedding vector for text content."""
-    model = get_embedding_model()
-    embedding_gen = model.embed([text_content])
+    embedding_gen = embedding_model.embed([text_content])
     vector = list(next(embedding_gen)) 
     
     if len(vector) != VECTOR_SIZE:
@@ -76,7 +73,6 @@ def generate_embedding(text_content):
 
 def upsert_to_qdrant(file_name, chunk_index, text_content, vector):
     """Upsert embedding point to Qdrant collection."""
-    qdrant_client = get_qdrant_client()
     point_id = str(uuid.uuid4())
     payload = {
         "filename": file_name,
@@ -84,7 +80,7 @@ def upsert_to_qdrant(file_name, chunk_index, text_content, vector):
         "text": text_content
     }
     
-    upsert_result = qdrant_client.upsert(
+    upsert_result = client.upsert(
         collection_name=COLLECTION_NAME,
         points=[
             models.PointStruct(
