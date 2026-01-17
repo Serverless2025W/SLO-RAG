@@ -129,7 +129,7 @@ services:
       apk add --no-cache curl &&
       
       echo 'Downloading MinIO Client...' &&
-      curl https://dl.min.io/client/mc/release/linux-amr64/mc -o /usr/local/bin/mc &&
+      curl https://dl.min.io/client/mc/release/linux-amd64/mc -o /usr/local/bin/mc &&
       chmod +x /usr/local/bin/mc &&
       
       echo 'Waiting for MinIO...' &&
@@ -171,7 +171,7 @@ services:
       
   redpanda-connector:
     # Change to your DockerHub username, env variable not working atm
-    image: stanisica/redpanda-connector:latest
+    image: gravarica/redpanda-connector:latest
     restart: always
     environment:
       - BROKER=redpanda:9092

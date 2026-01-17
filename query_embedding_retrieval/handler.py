@@ -1,5 +1,6 @@
 import os
 import json
+import requests
 from fastembed import TextEmbedding
 from qdrant_client import QdrantClient
 
@@ -15,6 +16,25 @@ client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
 
 COLLECTION_NAME = os.environ.get("COLLECTION_NAME", "embeddings")
 TOP_K = int(os.environ.get("TOP_K", 5))
+
+ROUTER_URL = os.environ.get("ROUTER_URL", "http://gateway:8080/function/router")
+
+DEFAULT_PROMPT_TEMPLATE = """Answer the question based on the context below. If the context doesn't contain relevant information, answer based on your general knowledge.
+
+Context:
+{context}
+
+Question: {query}
+
+Answer:"""
+
+PROMPT_TEMPLATE = os.environ.get("PROMPT_TEMPLATE", DEFAULT_PROMPT_TEMPLATE)
+
+BACKEND_TO_MODEL = {
+    "local-inference": "Llama-3.2-1B-Instruct",
+    "remote-inference": "Llama-3.3-70B-Versatile (Groq)",
+    "unknown": "Unknown"
+}
 
 
 def parse_input(req):
@@ -59,14 +79,24 @@ def format_results(results):
     return formatted
 
 
-def build_inference_payload(query, results):
-    """Build a minimal payload for LLM inference."""
-    context_chunks = [chunk['text'] for chunk in results]
+def format_prompt(query, results):
+    """Format the RAG prompt with query and retrieved context."""
+    if results:
+        context_text = "\n\n".join([chunk['text'] for chunk in results])
+    else:
+        context_text = "No relevant context found."
 
-    return {
-        "query": query,
-        "context": context_chunks
-    }
+    return PROMPT_TEMPLATE.format(context=context_text, query=query)
+
+
+def call_router(prompt):
+    """Send the formatted prompt to the router for inference."""
+    try:
+        response = requests.post(ROUTER_URL, data=prompt, timeout=120)
+        return response.text, response.headers.get("X-Routing-Target", "unknown")
+    except requests.exceptions.RequestException as e:
+        log(f"Router call failed: {e}")
+        raise
 
 
 def handle(req, context):
@@ -87,6 +117,8 @@ def handle(req, context):
         log(f"Embedding generation error: {e}")
         return json.dumps({"error": f"Embedding generation error: {e}"})
 
+    # Retrieve context from vector DB
+    formatted = []
     try:
         results = search_similar(query_vector)
         formatted = format_results(results)
@@ -96,10 +128,31 @@ def handle(req, context):
             log(f"--- Result {i+1} (score: {chunk['score']:.4f}) ---")
             log(f"File: {chunk['filename']}, Chunk: {chunk['chunk_index']}")
             log(f"Text: {chunk['text'][:200]}...")
-
-        payload = build_inference_payload(query, formatted)
-
-        return json.dumps(payload)
     except Exception as e:
-        log(f"Search error: {e}")
-        return json.dumps({"error": f"Search error: {e}"})
+        log(f"Search error (continuing without context): {e}")
+
+    # Format prompt and call router for inference
+    try:
+        prompt = format_prompt(query, formatted)
+        log(f"Formatted prompt ({len(prompt)} chars), calling router...")
+
+        answer, backend = call_router(prompt)
+        log(f"Got response from {backend}")
+
+        model_name = BACKEND_TO_MODEL.get(backend, backend)
+        return json.dumps({
+            "answer": answer,
+            "model": model_name,
+            "sources": [
+                {
+                    "filename": chunk["filename"],
+                    "chunk_index": chunk["chunk_index"],
+                    "score": chunk["score"],
+                    "text": chunk["text"][:200] + "..." if len(chunk["text"]) > 200 else chunk["text"]
+                }
+                for chunk in formatted
+            ]
+        })
+    except Exception as e:
+        log(f"Inference error: {e}")
+        return json.dumps({"error": f"Inference error: {e}"})

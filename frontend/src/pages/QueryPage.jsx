@@ -1,9 +1,8 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { queryRAG } from '../api';
+import Layout from '../components/Layout';
 
 export default function QueryPage() {
-  const navigate = useNavigate();
   const [query, setQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [result, setResult] = useState(null);
@@ -28,14 +27,7 @@ export default function QueryPage() {
   };
 
   return (
-    <div className="page">
-      <div className="hero">
-        <h1>Query Documents</h1>
-        <p className="subtitle">
-          Enter your question to search through the indexed documents using semantic similarity.
-        </p>
-      </div>
-
+    <Layout>
       <form className="query-form" onSubmit={handleSubmit}>
         <textarea
           value={query}
@@ -59,17 +51,23 @@ export default function QueryPage() {
 
       {result && (
         <div className="results-section">
-          <h2>Retrieved Context</h2>
-          <div className="query-display">
-            <strong>Query:</strong> {result.query}
+          <div className="answer-section">
+            <h2>Answer</h2>
+            <div className="backend-badge">
+              {result.model || 'Unknown model'}
+            </div>
+            <div className="answer-text">
+              {result.answer || 'No answer generated.'}
+            </div>
           </div>
 
-          {result.context && result.context.length > 0 ? (
+          <h2>Sources</h2>
+          {result.sources && result.sources.length > 0 ? (
             <div className="results-list">
-              {result.context.map((chunk, index) => (
+              {result.sources.map((chunk, index) => (
                 <div key={index} className="result-card">
                   <div className="result-header">
-                    <span className="result-index">Result {index + 1}</span>
+                    <span className="result-index">Source {index + 1}</span>
                     {chunk.score && (
                       <span className="result-score">
                         Score: {(chunk.score * 100).toFixed(1)}%
@@ -84,21 +82,15 @@ export default function QueryPage() {
                       )}
                     </div>
                   )}
-                  <p className="result-text">
-                    {typeof chunk === 'string' ? chunk : chunk.text}
-                  </p>
+                  <p className="result-text">{chunk.text}</p>
                 </div>
               ))}
             </div>
           ) : (
-            <p className="no-results">No matching documents found.</p>
+            <p className="no-results">No source documents retrieved.</p>
           )}
         </div>
       )}
-
-      <button className="back-btn" onClick={() => navigate('/')}>
-        Back to Upload
-      </button>
-    </div>
+    </Layout>
   );
 }
