@@ -1,16 +1,29 @@
-import { useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { uploadToMinio, pollForChunks } from '../api';
+import { useState, useCallback, useEffect } from 'react';
+import { uploadToMinio, pollForChunks, getAllDocuments } from '../api';
+import Layout from '../components/Layout';
 
 const MAX_FILES = 10;
 
 export default function UploadPage() {
-  const navigate = useNavigate();
   const [isDragging, setIsDragging] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [fileStatuses, setFileStatuses] = useState({});
   const [chunks, setChunks] = useState([]);
   const [processedFiles, setProcessedFiles] = useState([]);
+  const [documents, setDocuments] = useState([]);
+
+  useEffect(() => {
+    loadDocuments();
+  }, []);
+
+  const loadDocuments = async () => {
+    try {
+      const docs = await getAllDocuments();
+      setDocuments(docs);
+    } catch (error) {
+      console.error('Failed to load documents:', error);
+    }
+  };
 
   const handleDragOver = useCallback((e) => {
     e.preventDefault();
@@ -63,6 +76,7 @@ export default function UploadPage() {
     setChunks(allChunks);
     setProcessedFiles(processed);
     setIsLoading(false);
+    loadDocuments();
   };
 
   const handleDrop = useCallback((e) => {
@@ -83,15 +97,7 @@ export default function UploadPage() {
   }, {});
 
   return (
-    <div className="page">
-      <div className="hero">
-        <h1>SLO-RAG Platform</h1>
-        <p className="subtitle">
-          Serverless Retrieval-Augmented Generation with SLO-aware routing.
-          Upload your documents and query them using semantic search.
-        </p>
-      </div>
-
+    <Layout>
       <div className="upload-section">
         <h2>Upload Documents</h2>
         <div
@@ -129,9 +135,29 @@ export default function UploadPage() {
         )}
       </div>
 
+      {documents.length > 0 && (
+        <div className="documents-section">
+          <h2>Project Files ({documents.length})</h2>
+          <div className="documents-list">
+            {documents.map((doc) => (
+              <div key={doc.filename} className="document-item">
+                <svg className="document-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                </svg>
+                <div className="document-info">
+                  <span className="document-name">{doc.filename}</span>
+                  <span className="document-chunks">{doc.chunkCount} chunks</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {Object.keys(groupedChunks).length > 0 && (
         <div className="chunks-section">
-          <h2>Document Chunks ({chunks.length} total)</h2>
+          <h2>Uploaded Chunks ({chunks.length} total)</h2>
           {Object.entries(groupedChunks).map(([filename, fileChunks]) => (
             <div key={filename} className="file-chunks">
               <h3 className="file-chunks-title">{filename} ({fileChunks.length} chunks)</h3>
@@ -149,18 +175,8 @@ export default function UploadPage() {
               </div>
             </div>
           ))}
-
-          <button className="continue-btn" onClick={() => navigate('/query')}>
-            Continue to Query Page
-          </button>
         </div>
       )}
-
-      {processedFiles.length > 0 && chunks.length === 0 && !isLoading && (
-        <button className="continue-btn" onClick={() => navigate('/query')}>
-          Continue to Query Page
-        </button>
-      )}
-    </div>
+    </Layout>
   );
 }

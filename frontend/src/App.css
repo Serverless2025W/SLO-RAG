@@ -25,6 +25,50 @@
   background-clip: text;
 }
 
+.nav-tabs {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  margin: 1.5rem 0;
+}
+
+.nav-tab {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.05);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.nav-tab svg {
+  width: 22px;
+  height: 22px;
+  color: #a0a0a0;
+}
+
+.nav-tab:hover {
+  border-color: #00d4ff;
+  background: rgba(0, 212, 255, 0.1);
+}
+
+.nav-tab:hover svg {
+  color: #00d4ff;
+}
+
+.nav-tab.active {
+  border-color: #00d4ff;
+  background: linear-gradient(135deg, rgba(0, 212, 255, 0.2), rgba(123, 47, 247, 0.2));
+}
+
+.nav-tab.active svg {
+  color: #00d4ff;
+}
+
 .subtitle {
   color: #a0a0a0;
   font-size: 1.1rem;
@@ -188,6 +232,57 @@
 .file-status-message {
   color: #a0a0a0;
   font-size: 0.85rem;
+}
+
+.documents-section {
+  margin-top: 2rem;
+}
+
+.documents-section h2 {
+  margin-bottom: 1rem;
+  color: #e0e0e0;
+}
+
+.documents-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.document-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+}
+
+.document-icon {
+  width: 20px;
+  height: 20px;
+  color: #00d4ff;
+  flex-shrink: 0;
+}
+
+.document-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.document-name {
+  color: #e0e0e0;
+  font-size: 0.9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.document-chunks {
+  color: #888;
+  font-size: 0.75rem;
 }
 
 .chunks-section,

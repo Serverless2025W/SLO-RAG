@@ -86,3 +86,68 @@ export async function pollForChunks(filename, maxAttempts = 30, intervalMs = 200
   }
   return [];
 }
+
+export async function deleteDocument(filename) {
+  const { endpoint, collection } = config.qdrant;
+  const { endpoint: minioEndpoint, bucket } = config.minio;
+
+  // Delete from Qdrant
+  const qdrantUrl = `${endpoint}/collections/${collection}/points/delete`;
+  const qdrantResponse = await fetch(qdrantUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      filter: {
+        must: [{ key: 'filename', match: { value: filename } }],
+      },
+    }),
+  });
+
+  if (!qdrantResponse.ok) {
+    throw new Error(`Failed to delete from Qdrant: ${qdrantResponse.status}`);
+  }
+
+  // Try to delete from MinIO (may fail if delete not allowed)
+  try {
+    const minioUrl = `${minioEndpoint}/${bucket}/${encodeURIComponent(filename)}`;
+    await fetch(minioUrl, { method: 'DELETE' });
+  } catch (e) {
+    console.log('MinIO delete skipped:', e.message);
+  }
+
+  return { deleted: filename };
+}
+
+export async function getAllDocuments() {
+  const { endpoint, collection } = config.qdrant;
+  const url = `${endpoint}/collections/${collection}/points/scroll`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      limit: 1000,
+      with_payload: true,
+      with_vector: false,
+    }),
+  });
+
+  if (!response.ok) {
+    if (response.status === 404) return [];
+    throw new Error(`Failed to fetch documents: ${response.status}`);
+  }
+
+  const data = await response.json();
+  const points = data.result?.points || [];
+
+  const fileMap = {};
+  points.forEach(point => {
+    const filename = point.payload.filename;
+    if (!fileMap[filename]) {
+      fileMap[filename] = { filename, chunkCount: 0 };
+    }
+    fileMap[filename].chunkCount++;
+  });
+
+  return Object.values(fileMap);
+}

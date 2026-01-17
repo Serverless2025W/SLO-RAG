@@ -1,9 +1,8 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { queryRAG } from '../api';
+import Layout from '../components/Layout';
 
 export default function QueryPage() {
-  const navigate = useNavigate();
   const [query, setQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [result, setResult] = useState(null);
@@ -28,14 +27,7 @@ export default function QueryPage() {
   };
 
   return (
-    <div className="page">
-      <div className="hero">
-        <h1>Query Documents</h1>
-        <p className="subtitle">
-          Enter your question to search through the indexed documents using semantic similarity.
-        </p>
-      </div>
-
+    <Layout>
       <form className="query-form" onSubmit={handleSubmit}>
         <textarea
           value={query}
@@ -46,12 +38,12 @@ export default function QueryPage() {
               if (query.trim() && !isLoading) handleSubmit(e);
             }
           }}
-          placeholder="Enter your query... (Press Enter to search)"
+          placeholder="Ask SLO-RAG"
           rows={4}
           disabled={isLoading}
         />
         <button type="submit" disabled={isLoading || !query.trim()}>
-          {isLoading ? 'Searching...' : 'Search'}
+          {isLoading ? 'Searching...' : 'Execute'}
         </button>
       </form>
 
@@ -95,10 +87,6 @@ export default function QueryPage() {
           )}
         </div>
       )}
-
-      <button className="back-btn" onClick={() => navigate('/')}>
-        Back to Upload
-      </button>
-    </div>
+    </Layout>
   );
 }
