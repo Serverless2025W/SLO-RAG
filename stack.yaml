@@ -29,7 +29,24 @@ functions:
       VECTOR_SIZE: "384"
       PYTHONUNBUFFERED: "1"
     limits:
-      memory: 1024M
+      memory: 2048M
+    requests:
+      memory: 512M
+
+  query-embedding-retrieval:
+    lang: python3-http-debian
+    handler: ./query_embedding_retrieval
+    image: ${DOCKER_USER}/query-embedding-retrieval:latest
+    annotations:
+      topic: rag-queries
+    environment:
+      QDRANT_HOST: "qdrant"
+      QDRANT_PORT: "6333"
+      COLLECTION_NAME: "embeddings"
+      TOP_K: "5"
+      PYTHONUNBUFFERED: "1"
+    limits:
+      memory: 2048M
     requests:
       memory: 512M
 
