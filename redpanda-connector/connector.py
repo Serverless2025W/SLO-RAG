@@ -1,37 +1,32 @@
-"""
-Redpanda Connector
-
-This connector is a simple Kafka consumer that routes messages to faasd functions.
-"""
-
 import os
 import json
 import requests
 from kafka import KafkaConsumer
 import sys
+import threading
 
 def log(msg):
     print(msg, flush=True)
 
-# Configuration
-BROKER = os.getenv("BROKER", "redpanda:9092")
-TOPICS_STR = os.getenv("TOPICS", "text-chunks")
-TOPICS = [t.strip() for t in TOPICS_STR.split(",")]
-TARGET_FUNCTION = os.getenv("TARGET_FUNCTION", "embedding-generation")
+# Configuration: Map Topics to Function Names
+# Format: "topic_name:function_name;topic2:function2;..."
+# Default includes all topics for Workflows 1, 3, and 4
+ROUTE_MAP_RAW = os.getenv(
+    "ROUTE_MAP", 
+    "text-chunks:embedding-generation;conversation-events:conversation-manager;llm-responses:conversation-manager;summarization-triggers:context-summarizer"
+)
 GATEWAY_URL = os.getenv("GATEWAY_URL", "http://gateway:8080")
-CONSUMER_GROUP = os.getenv("CONSUMER_GROUP", "faasd-connector-group")
+BROKER = os.getenv("BROKER", "redpanda:9092")
 
-# Topic-to-Function Routing Map
-TOPIC_ROUTES = {
-    "text-chunks": "embedding-generation",
-    "conversation-events": "conversation-manager",
-    "llm-responses": "conversation-manager",
-    "summarization-triggers": "context-summarizer"
-}
+# Parse the mapping
+# Result: {'text-chunks': 'embedding-generation', 'conversation-events': 'conversation-manager', ...}
+ROUTES = dict(item.split(":") for item in ROUTE_MAP_RAW.split(";"))
+TOPICS = list(ROUTES.keys())
 
 def get_target_function(topic: str) -> str:
     """Get target function name for a topic."""
-    return TOPIC_ROUTES.get(topic, TARGET_FUNCTION)
+    # Return the mapped function or default to embedding-generation for unknown topics
+    return ROUTES.get(topic, "embedding-generation")
 
 def invoke_function(function_name: str, data: dict) -> dict:
     """
@@ -64,28 +59,27 @@ def invoke_function(function_name: str, data: dict) -> dict:
 def process_message(message) -> None:
     """
     Process a single Kafka message by routing to the appropriate function.
-    
-    The function handles all business logic:
-    - conversation-manager: stores state, checks thresholds, triggers summarization
-    - context-summarizer: generates summary, replaces conversation history
-    - embedding-generation: generates and stores embeddings
     """
     topic = message.topic
     try:
-        # Parse message value
-        if isinstance(message.value, bytes):
-            data = json.loads(message.value.decode('utf-8'))
-        elif isinstance(message.value, str):
-            data = json.loads(message.value)
+        # Parse message value (may be string from deserializer or bytes)
+        payload = message.value
+        if isinstance(payload, str):
+            data = json.loads(payload)
+        elif isinstance(payload, bytes):
+            data = json.loads(payload.decode('utf-8'))
         else:
-            data = message.value
+            data = payload
         
-        log(f"Received message on topic '{topic}': {str(data)[:100]}...")
-        
-        # Get target function and invoke
+        # Determine Target Function
         target_function = get_target_function(topic)
-        log(f"Routing to function: {target_function}")
+        if not target_function:
+            log(f"Warning: No route defined for topic {topic}")
+            return
         
+        log(f"Received: [{topic}] -> [{target_function}] payload={str(data)[:50]}...")
+        
+        # Invoke Function
         result = invoke_function(target_function, data)
         
         if result:
@@ -94,47 +88,28 @@ def process_message(message) -> None:
             log(f"WARNING: Function {target_function} returned no result")
         
     except json.JSONDecodeError as e:
-        log(f"ERROR: Failed to parse message as JSON: {e}")
+        log(f"ERROR: Failed to parse JSON payload: {e}")
     except Exception as e:
-        log(f"ERROR: Error processing message: {e}")
+        log(f"Error forwarding message: {str(e)}")
 
-def main():
-    log("=" * 60)
-    log("Redpanda Connector - Thin Message Router")
-    log("=" * 60)
-    log(f"Gateway: {GATEWAY_URL}")
-    log(f"Broker: {BROKER}")
-    log(f"Topics: {', '.join(TOPICS)}")
-    log(f"Consumer Group: {CONSUMER_GROUP}")
-    log(f"Routes: {TOPIC_ROUTES}")
-    log("=" * 60)
-    
-    # Initialize Kafka Consumer
-    try:
-        consumer = KafkaConsumer(
-            *TOPICS,
-            bootstrap_servers=BROKER,
-            auto_offset_reset='latest',
-            enable_auto_commit=True,
-            group_id=CONSUMER_GROUP,
-            value_deserializer=lambda x: x  # Keep as bytes, decode in process_message
-        )
-        log("Successfully connected to Redpanda.")
-        log(f"Subscribed to topics: {', '.join(TOPICS)}")
-    except Exception as e:
-        log(f"CRITICAL: Could not connect to Redpanda: {e}")
-        sys.exit(1)
-    
-    # Process messages
-    log("Waiting for messages...")
-    try:
-        for message in consumer:
-            process_message(message)
-    except KeyboardInterrupt:
-        log("Shutting down...")
-    except Exception as e:
-        log(f"CRITICAL: Consumer error: {e}")
-        sys.exit(1)
+log(f"--- Redpanda Connector Router Starting ---")
+log(f"Broker: {BROKER}")
+log(f"Routing Map: {json.dumps(ROUTES, indent=2)}")
 
-if __name__ == "__main__":
-    main()
+try:
+    consumer = KafkaConsumer(
+        bootstrap_servers=BROKER,
+        auto_offset_reset='latest',
+        enable_auto_commit=True,
+        group_id='rag-connector-group',
+        value_deserializer=lambda x: x.decode('utf-8')
+    )
+    # Subscribe to ALL topics in our map
+    consumer.subscribe(topics=TOPICS)
+    log(f"Subscribed to topics: {TOPICS}")
+except Exception as e:
+    log(f"CRITICAL: Could not connect to Redpanda: {e}")
+    sys.exit(1)
+
+for message in consumer:
+    process_message(message)
