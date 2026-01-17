@@ -151,3 +151,42 @@ export async function getAllDocuments() {
 
   return Object.values(fileMap);
 }
+
+export async function sendMessage(sessionId, content) {
+  const url = `${config.openfaas.gateway}${config.openfaas.functions.conversationManager}`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      session_id: sessionId,
+      role: 'user',
+      content: content,
+      timestamp: new Date().toISOString()
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Message failed: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export async function getConversationHistory(sessionId) {
+  const url = `${config.openfaas.gateway}${config.openfaas.functions.conversationManager}`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      action: 'get_history',
+      session_id: sessionId
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`History fetch failed: ${response.status}`);
+  }
+
+  const data = await response.json();
+  return data.body?.messages || [];
+}

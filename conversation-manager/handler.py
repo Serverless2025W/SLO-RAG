@@ -312,7 +312,15 @@ def handle(req, context):
         return {"statusCode": 400, "body": json.dumps({"error": "Invalid JSON", "details": str(e)})}
     except Exception as e:
         return {"statusCode": 400, "body": json.dumps({"error": "Parse error", "details": str(e)})}
-    
+
+    # Handle history retrieval action
+    if data.get("action") == "get_history":
+        session_id = data.get("session_id")
+        if not session_id:
+            return {"statusCode": 400, "body": json.dumps({"error": "session_id required"})}
+        history = get_conversation_history(session_id)
+        return {"statusCode": 200, "body": {"messages": history}}
+
     # Validate
     is_valid, error_msg = validate_conversation_event(data)
     if not is_valid:

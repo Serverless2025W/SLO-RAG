@@ -9,6 +9,7 @@ export const config = {
     gateway: `/openfaas`,
     functions: {
       queryEmbeddingRetrieval: '/function/query-embedding-retrieval',
+      conversationManager: '/function/conversation-manager',
     },
   },
   qdrant: {

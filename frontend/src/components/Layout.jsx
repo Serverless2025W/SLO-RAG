@@ -1,15 +1,28 @@
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useSession } from '../context/SessionContext';
 
 export default function Layout({ children }) {
   const navigate = useNavigate();
   const location = useLocation();
+  const { username, clearSession } = useSession();
 
   const isUpload = location.pathname === '/';
-  const isQuery = location.pathname === '/query';
+  const isChat = location.pathname === '/chat';
+
+  const handleLogout = () => {
+    clearSession();
+    navigate('/');
+  };
 
   return (
     <div className="page">
       <div className="hero">
+        <div className="session-bar">
+          <span className="session-user">Session: {username}</span>
+          <button className="logout-btn" onClick={handleLogout}>
+            Logout
+          </button>
+        </div>
         <h1>SLO-RAG Platform</h1>
         <p className="subtitle">
           Serverless Retrieval-Augmented Generation with SLO-aware routing.
@@ -30,13 +43,12 @@ export default function Layout({ children }) {
             </svg>
           </button>
           <button
-            className={`nav-tab ${isQuery ? 'active' : ''}`}
-            onClick={() => navigate('/query')}
-            title="Query"
+            className={`nav-tab ${isChat ? 'active' : ''}`}
+            onClick={() => navigate('/chat')}
+            title="Chat"
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="11" cy="11" r="8" />
-              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
             </svg>
           </button>
         </div>
