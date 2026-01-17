@@ -20,6 +20,8 @@ functions:
     lang: python3-http-debian
     handler: ./embedding-generation
     image: ${DOCKER_USER}/embedding-generation:latest
+    annotations:
+      topic: text-chunks
     environment:
       QDRANT_HOST: "qdrant"
       QDRANT_PORT: "6333"
@@ -27,7 +29,30 @@ functions:
       VECTOR_SIZE: "384"
       PYTHONUNBUFFERED: "1"
     limits:
-      memory: 1024M
+      memory: 2048M
+    requests:
+      memory: 512M
+
+  query-embedding-retrieval:
+    lang: python3-http-debian
+    handler: ./query_embedding_retrieval
+    image: ${DOCKER_USER}/query-embedding-retrieval:latest
+    timeout: 120s
+    annotations:
+      topic: rag-queries
+    environment:
+      QDRANT_HOST: "qdrant"
+      QDRANT_PORT: "6333"
+      COLLECTION_NAME: "embeddings"
+      TOP_K: "5"
+      ROUTER_URL: "http://gateway:8080/function/router"
+      REDIS_HOST: "redis"
+      REDIS_PORT: "6379"
+      REDIS_DB: "0"
+      CONVERSATION_TTL: "86400"
+      PYTHONUNBUFFERED: "1"
+    limits:
+      memory: 2048M
     requests:
       memory: 512M
 
@@ -61,3 +86,36 @@ functions:
       # LLM_API_KEY: "${LLM_API_KEY}"
       # SUMMARIZATION_MODEL: "${LLM_MODEL}"
       PYTHONUNBUFFERED: "1"
+
+  local-inference:
+    lang: python3-http-debian
+    handler: ./local-inference
+    image: ${DOCKER_USER}/llm:v1
+    timeout: 300s
+
+    build_args:
+      CMAKE_ARGS: "-DGGML_CUDA=on"
+      ADDITIONAL_PACKAGE: "build-essential cmake git"
+
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+
+      write_timeout: 300s
+      read_timeout: 300s
+      exec_timeout: 300s
+  remote-inference:
+    lang: python3-http
+    handler: ./remote-inference
+    image: ${DOCKER_USER}/remote-inference:v1
+    environment:
+      GROQ_API_KEY: "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"
+  router:
+    lang: python3-http
+    handler: ./router
+    image: ${DOCKER_USER}/router:v1
+    timeout: 60s
+
+    annotations:
+      com.openfaas.scale.min: "1"
+

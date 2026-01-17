@@ -1,9 +1,10 @@
-version: "3.8"
-
+version: "3.7"
 services:
 
   nats:
-    image: nats-streaming:0.24.6
+    image: docker.io/library/nats-streaming:0.25.6
+# nobody
+    user: "65534"
     command:
       - "/nats-streaming-server"
       - "-m"
@@ -12,7 +13,7 @@ services:
       - "--dir=/nats"
       - "--cluster_id=faas-cluster"
     volumes:
-      # Data directory
+# Data directory
       - type: bind
         source: ./nats
         target: /nats
@@ -21,21 +22,21 @@ services:
 
   prometheus:
     image: docker.io/prom/prometheus:v3.1.0
-    # nobody
+# nobody
     user: "65534"
     volumes:
-      # Config directory
+# Config directory
       - type: bind
         source: ./prometheus.yml
         target: /etc/prometheus/prometheus.yml
-      # Data directory
+# Data directory
       - type: bind
         source: ./prometheus
         target: /prometheus
     cap_add:
       - CAP_NET_RAW
     ports:
-       - "127.0.0.1:9090:9090"
+       - "9090:9090"
 
   gateway:
     image: ghcr.io/openfaas/gateway:0.27.12
@@ -91,6 +92,7 @@ services:
       - CAP_NET_RAW
     depends_on:
       - nats
+
   minio:
     image: minio/minio:latest
     command:
@@ -110,10 +112,11 @@ services:
         source: ./minio-data
         target: /data
     ports:
-      - "9002:9000"
-      - "9003:9001"
+      - "9000:9000"
+      - "9001:9001"
     cap_add:
       - CAP_NET_RAW
+
   minio-init:
     image: alpine:latest
     depends_on:
@@ -148,11 +151,12 @@ services:
       - --mode
       - dev-container
       - --kafka-addr
-      - internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - internal://0.0.0.0:9092,external://0.0.0.0:29092
       - --advertise-kafka-addr
-      - internal://redpanda:9092,external://localhost:19092
+      - internal://redpanda:9092,external://localhost:29092
     ports:
-      - "19092:19092"
+      - "29092:29092"
+      - "9092:9092"
       
   console:
     image: docker.redpanda.com/redpandadata/console:latest
@@ -165,34 +169,18 @@ services:
     depends_on:
       - redpanda
       
-  
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    volumes:
-      - type: bind
-        source: ./redis-data
-        target: /data
-    command: redis-server --appendonly yes
-    restart: always
   redpanda-connector:
     # Change to your DockerHub username, env variable not working atm
-    image: nikolalukicc/redpanda-connector:latest
+    image: gravarica/redpanda-connector:latest
     restart: always
     environment:
       - BROKER=redpanda:9092
-      - TOPICS=text-chunks,conversation-events,llm-responses,summarization-triggers
-      - TARGET_FUNCTION=embedding-generation
+      - ROUTE_MAP=text-chunks:embedding-generation;rag-queries:inference;update-state:state-management;summarize-doc:context-summary
       - GATEWAY_URL=http://gateway:8080
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - REDIS_DB=0
-      - CONSUMER_GROUP=faasd-connector-group
     depends_on:
       - gateway
       - redpanda
-      - redis
+
   qdrant:
     image: qdrant/qdrant:latest
     ports:
@@ -201,3 +189,24 @@ services:
       - type: bind
         source: ./qdrant-data
         target: /data
+
+  redis:
+    image: redis:alpine
+    # Persist data to a local folder named 'redis-data'
+    ports:
+      - "6379:6379"
+    volumes:
+      - type: bind
+        source: ./redis-data
+        target: /data
+    cap_add:
+      - CAP_NET_RAW
+
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    environment:
+      - REDIS_HOSTS=local:redis:6379
+    ports:
+      - "8082:8081"  # Mapped to 8082 on Windows to avoid conflicts
+    depends_on:
+      - redis

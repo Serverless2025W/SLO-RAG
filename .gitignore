@@ -10,3 +10,5 @@ faasd/
 minio-data/
 qdrant-data/
 redis-data/
+CLAUDE.md
+.claude/

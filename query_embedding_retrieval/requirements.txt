@@ -1,0 +1,4 @@
+fastembed
+qdrant-client
+requests
+redis
