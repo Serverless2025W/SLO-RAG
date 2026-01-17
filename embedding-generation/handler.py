@@ -9,27 +9,40 @@ def log(message):
     """Log message with flush enabled."""
     print(message, flush=True)
 
-log("Loading FastEmbed Model...")
-embedding_model = TextEmbedding()
+embedding_model = None
+client = None
 
-QDRANT_HOST = os.environ.get("QDRANT_HOST", "qdrant")
-QDRANT_PORT = int(os.environ.get("QDRANT_PORT", 6333))
-client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
+COLLECTION_NAME = "documents"
+VECTOR_SIZE = 384  # BGE-Small embedding size
 
-COLLECTION_NAME = os.environ.get("COLLECTION_NAME", "embeddings")
-VECTOR_SIZE = int(os.environ.get("VECTOR_SIZE", 384))
+def get_embedding_model():
+    """Initialize embedding model lazily."""
+    global embedding_model
+    if embedding_model is None:
+        log("Loading FastEmbed Model...")
+        embedding_model = TextEmbedding()
+    return embedding_model
 
-try:
-    client.get_collection(COLLECTION_NAME)
-except Exception:
-    log(f"Creating collection '{COLLECTION_NAME}'...")
-    client.create_collection(
-        collection_name=COLLECTION_NAME,
-        vectors_config=models.VectorParams(
-            size=VECTOR_SIZE,
-            distance=models.Distance.COSINE
+def get_qdrant_client():
+    """Initialize Qdrant client and collection lazily."""
+    global client
+    if client is not None:
+        return client
+    qdrant_host = os.environ.get("QDRANT_HOST", "qdrant")
+    qdrant_port = int(os.environ.get("QDRANT_PORT", 6333))
+    client = QdrantClient(host=qdrant_host, port=qdrant_port)
+    try:
+        client.get_collection(COLLECTION_NAME)
+    except Exception:
+        log(f"Creating collection '{COLLECTION_NAME}'...")
+        client.create_collection(
+            collection_name=COLLECTION_NAME,
+            vectors_config=models.VectorParams(
+                size=VECTOR_SIZE,
+                distance=models.Distance.COSINE
+            )
         )
-    )
+    return client
 
 
 def parse_input(req):
@@ -38,38 +51,40 @@ def parse_input(req):
         body = req.body
     else:
         body = req
-    
+
     if isinstance(body, bytes):
         body = body.decode('utf-8')
-    
+
     event = json.loads(body)
-    
+
     text_content = event.get('content', '')
     file_name = event.get('file_name', 'unknown')
     chunk_index = event.get('chunk_index', 0)
-    
+
     return text_content, file_name, chunk_index
 
 def generate_embedding(text_content):
     """Generate embedding vector for text content."""
-    embedding_gen = embedding_model.embed([text_content])
-    vector = list(next(embedding_gen)) 
-    
+    model = get_embedding_model()
+    embedding_gen = model.embed([text_content])
+    vector = list(next(embedding_gen))
+
     if len(vector) != VECTOR_SIZE:
         log(f"Vector dimension mismatch: {len(vector)} vs {VECTOR_SIZE}")
-    
+
     return vector
 
 def upsert_to_qdrant(file_name, chunk_index, text_content, vector):
     """Upsert embedding point to Qdrant collection."""
+    qdrant_client = get_qdrant_client()
     point_id = str(uuid.uuid4())
     payload = {
         "filename": file_name,
         "chunk_index": chunk_index,
         "text": text_content
     }
-    
-    upsert_result = client.upsert(
+
+    upsert_result = qdrant_client.upsert(
         collection_name=COLLECTION_NAME,
         points=[
             models.PointStruct(
@@ -79,7 +94,7 @@ def upsert_to_qdrant(file_name, chunk_index, text_content, vector):
             )
         ]
     )
-    
+
     log(f"Saved chunk {chunk_index} to Qdrant.")
 
     return point_id
@@ -90,7 +105,7 @@ def handle(req, context):
 
     try:
         text_content, file_name, chunk_index = parse_input(req)
-        
+
         if not text_content:
             return {"status": "skipped"}
 
