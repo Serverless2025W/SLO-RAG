@@ -271,6 +271,7 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
+  flex: 1;
 }
 
 .document-name {
@@ -284,6 +285,36 @@
 .document-chunks {
   color: #888;
   font-size: 0.75rem;
+}
+
+.document-delete-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.document-delete-btn svg {
+  width: 16px;
+  height: 16px;
+  color: #666;
+  transition: color 0.2s ease;
+}
+
+.document-delete-btn:hover {
+  background: rgba(255, 68, 68, 0.2);
+}
+
+.document-delete-btn:hover svg {
+  color: #ff4444;
 }
 
 .chunks-section,

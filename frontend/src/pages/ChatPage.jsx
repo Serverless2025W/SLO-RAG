@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useSession } from '../context/SessionContext';
-import { queryRAG, getConversationHistory, storeMessage } from '../api';
+import { queryRAG, getConversationHistory } from '../api';
 import Layout from '../components/Layout';
 
 export default function ChatPage() {
@@ -49,11 +49,6 @@ export default function ChatPage() {
     setError(null);
 
     try {
-      // Store user message
-      storeMessage(username, 'user', trimmed).catch(err =>
-        console.log('Could not store user message:', err.message)
-      );
-
       const response = await queryRAG(trimmed, username);
 
       if (response.answer) {
@@ -64,11 +59,6 @@ export default function ChatPage() {
           sources: response.sources
         };
         setMessages(prev => [...prev, assistantMessage]);
-
-        // Store assistant message
-        storeMessage(username, 'assistant', response.answer).catch(err =>
-          console.log('Could not store assistant message:', err.message)
-        );
       }
     } catch (err) {
       setError(err.message);
