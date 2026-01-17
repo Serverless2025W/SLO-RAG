@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-const VM_IP = '192.168.2.4';
+const VM_IP = 'localhost';
 
 export default defineConfig({
   plugins: [react()],
