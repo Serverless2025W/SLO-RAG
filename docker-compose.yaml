@@ -3,9 +3,7 @@ version: "3.8"
 services:
 
   nats:
-    image: docker.io/library/nats-streaming:0.25.6
-    # nobody
-    user: "65534"
+    image: nats-streaming:0.24.6
     command:
       - "/nats-streaming-server"
       - "-m"
@@ -112,8 +110,8 @@ services:
         source: ./minio-data
         target: /data
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "9002:9000"
+      - "9003:9001"
     cap_add:
       - CAP_NET_RAW
   minio-init:
@@ -150,12 +148,11 @@ services:
       - --mode
       - dev-container
       - --kafka-addr
-      - internal://0.0.0.0:9092,external://0.0.0.0:29092
+      - internal://0.0.0.0:9092,external://0.0.0.0:19092
       - --advertise-kafka-addr
-      - internal://redpanda:9092,external://localhost:29092
+      - internal://redpanda:9092,external://localhost:19092
     ports:
-      - "29092:29092"
-      - "9092:9092"
+      - "19092:19092"
       
   console:
     image: docker.redpanda.com/redpandadata/console:latest

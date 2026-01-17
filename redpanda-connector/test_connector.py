@@ -3,8 +3,7 @@ import json
 import os
 import sys
 import pytest
-from unittest.mock import Mock, patch, MagicMock, call
-from typing import Any
+from unittest.mock import Mock, patch, MagicMock
 
 def load_connector():
     connector_path = os.path.join(os.path.dirname(__file__), "connector.py")
@@ -18,17 +17,12 @@ def load_connector():
 with patch('kafka.KafkaConsumer'):
     connector = load_connector()
     get_target_function = connector.get_target_function
-    compute_query_hash = connector.compute_query_hash
-    get_query_embedding_cache = connector.get_query_embedding_cache
-    set_query_embedding_cache = connector.set_query_embedding_cache
-    get_conversation_history = connector.get_conversation_history
     invoke_function = connector.invoke_function
     process_message = connector.process_message
-    init_redis_client = connector.init_redis_client
 
 
 class TestTopicRouting:
-    """Unit tests for topic routing logic (Phase 1)."""
+    """Unit tests for topic routing logic."""
     
     def test_get_target_function_text_chunks(self):
         """Test routing for text-chunks topic."""
@@ -48,223 +42,228 @@ class TestTopicRouting:
     
     def test_get_target_function_unknown_topic(self):
         """Test routing for unknown topic falls back to default."""
-        # Should fall back to TARGET_FUNCTION env var (default: "embedding-generation")
         result = get_target_function("unknown-topic")
         assert result == "embedding-generation"  # Default from TARGET_FUNCTION env var
 
 
-class TestQueryHash:
-    """Unit tests for query hash computation."""
-    
-    def test_compute_query_hash_consistent(self):
-        """Test that same query produces same hash."""
-        query = "test query"
-        hash1 = compute_query_hash(query)
-        hash2 = compute_query_hash(query)
-        assert hash1 == hash2
-        assert len(hash1) == 64  # SHA256 hex length
-    
-    def test_compute_query_hash_different_queries(self):
-        """Test that different queries produce different hashes."""
-        hash1 = compute_query_hash("query 1")
-        hash2 = compute_query_hash("query 2")
-        assert hash1 != hash2
-
-
-class TestRedisOperations:
-    """Unit tests for Redis operations (Phase 2) with mocked Redis."""
-    
-    @patch('connector.init_redis_client')
-    def test_get_query_embedding_cache_hit(self, mock_init_redis):
-        """Test cache hit for query embedding."""
-        mock_client = Mock()
-        mock_client.get.return_value = json.dumps({"embedding": [0.1, 0.2, 0.3]})
-        mock_init_redis.return_value = mock_client
-        
-        result = get_query_embedding_cache("test query")
-        assert result == {"embedding": [0.1, 0.2, 0.3]}
-        mock_client.get.assert_called_once()
-    
-    @patch('connector.init_redis_client')
-    def test_get_query_embedding_cache_miss(self, mock_init_redis):
-        """Test cache miss for query embedding."""
-        mock_client = Mock()
-        mock_client.get.return_value = None
-        mock_init_redis.return_value = mock_client
-        
-        result = get_query_embedding_cache("test query")
-        assert result is None
-        mock_client.get.assert_called_once()
-    
-    @patch('connector.init_redis_client')
-    def test_get_query_embedding_cache_redis_unavailable(self, mock_init_redis):
-        """Test fallback when Redis is unavailable."""
-        mock_init_redis.return_value = None
-        
-        result = get_query_embedding_cache("test query")
-        assert result is None
-    
-    @patch('connector.init_redis_client')
-    def test_set_query_embedding_cache_success(self, mock_init_redis):
-        """Test successful cache write."""
-        mock_client = Mock()
-        mock_client.setex.return_value = True
-        mock_init_redis.return_value = mock_client
-        
-        embedding = {"embedding": [0.1, 0.2, 0.3]}
-        result = set_query_embedding_cache("test query", embedding)
-        assert result is True
-        mock_client.setex.assert_called_once()
-    
-    @patch('connector.init_redis_client')
-    def test_set_query_embedding_cache_redis_unavailable(self, mock_init_redis):
-        """Test cache write when Redis is unavailable."""
-        mock_init_redis.return_value = None
-        
-        embedding = {"embedding": [0.1, 0.2, 0.3]}
-        result = set_query_embedding_cache("test query", embedding)
-        assert result is False
-    
-    @patch('connector.init_redis_client')
-    def test_get_conversation_history_with_limit(self, mock_init_redis):
-        """Test retrieving conversation history with limit."""
-        mock_client = Mock()
-        mock_client.lrange.return_value = [
-            json.dumps({"role": "user", "content": "hello", "timestamp": "2026-01-12T20:00:00Z"}),
-            json.dumps({"role": "assistant", "content": "hi", "timestamp": "2026-01-12T20:00:01Z"})
-        ]
-        mock_init_redis.return_value = mock_client
-        
-        result = get_conversation_history("session-123", limit=10)
-        assert result is not None
-        assert len(result) == 2
-        assert result[0]["role"] == "user"
-        mock_client.lrange.assert_called_once_with("conversation:session-123", -10, -1)
-    
-    @patch('connector.init_redis_client')
-    def test_get_conversation_history_no_limit(self, mock_init_redis):
-        """Test retrieving conversation history without limit."""
-        mock_client = Mock()
-        mock_client.lrange.return_value = []
-        mock_init_redis.return_value = mock_client
-        
-        result = get_conversation_history("session-123")
-        assert result == []
-        mock_client.lrange.assert_called_once_with("conversation:session-123", 0, -1)
-    
-    @patch('connector.init_redis_client')
-    def test_get_conversation_history_redis_unavailable(self, mock_init_redis):
-        """Test conversation history when Redis is unavailable."""
-        mock_init_redis.return_value = None
-        
-        result = get_conversation_history("session-123")
-        assert result is None
-
-
 class TestMessageParsing:
-    """Unit tests for message parsing."""
+    """Unit tests for message parsing and routing."""
     
-    def test_process_message_json_dict(self):
-        """Test processing message with JSON dict."""
+    @patch('connector.invoke_function')
+    def test_process_message_bytes(self, mock_invoke):
+        """Test processing message with bytes value."""
         mock_message = Mock()
         mock_message.topic = "text-chunks"
-        mock_message.value = {"text": "test content"}
+        mock_message.value = b'{"text": "test content"}'
         
-        with patch('connector.invoke_function') as mock_invoke:
-            process_message(mock_message)
-            mock_invoke.assert_called_once()
+        mock_invoke.return_value = {"result": "success"}
+        
+        process_message(mock_message)
+        mock_invoke.assert_called_once_with("embedding-generation", {"text": "test content"})
     
-    def test_process_message_json_string(self):
-        """Test processing message with JSON string."""
+    @patch('connector.invoke_function')
+    def test_process_message_string(self, mock_invoke):
+        """Test processing message with string value."""
         mock_message = Mock()
         mock_message.topic = "conversation-events"
-        mock_message.value = json.dumps({"session_id": "123", "content": "test"})
+        mock_message.value = '{"session_id": "123", "content": "test"}'
         
-        with patch('connector.invoke_function') as mock_invoke:
-            with patch('connector.get_conversation_history') as mock_history:
-                process_message(mock_message)
-                mock_invoke.assert_called_once()
+        mock_invoke.return_value = {"result": "success"}
+        
+        process_message(mock_message)
+        mock_invoke.assert_called_once_with(
+            "conversation-manager", 
+            {"session_id": "123", "content": "test"}
+        )
+    
+    @patch('connector.invoke_function')
+    def test_process_message_dict(self, mock_invoke):
+        """Test processing message with dict value (already parsed)."""
+        mock_message = Mock()
+        mock_message.topic = "summarization-triggers"
+        mock_message.value = {"session_id": "456", "trigger_reason": "token_threshold"}
+        
+        mock_invoke.return_value = {"summary": "test summary"}
+        
+        process_message(mock_message)
+        mock_invoke.assert_called_once_with(
+            "context-summarizer",
+            {"session_id": "456", "trigger_reason": "token_threshold"}
+        )
+    
+    @patch('connector.invoke_function')
+    def test_process_message_invalid_json(self, mock_invoke):
+        """Test processing message with invalid JSON."""
+        mock_message = Mock()
+        mock_message.topic = "text-chunks"
+        mock_message.value = b'not valid json'
+        
+        # Should not raise, just log error
+        process_message(mock_message)
+        mock_invoke.assert_not_called()
+    
+    @patch('connector.invoke_function')
+    def test_process_message_routes_correctly(self, mock_invoke):
+        """Test that messages are routed to correct functions."""
+        mock_invoke.return_value = {"result": "ok"}
+        
+        # Test each topic route
+        test_cases = [
+            ("text-chunks", "embedding-generation"),
+            ("conversation-events", "conversation-manager"),
+            ("llm-responses", "conversation-manager"),
+            ("summarization-triggers", "context-summarizer"),
+        ]
+        
+        for topic, expected_function in test_cases:
+            mock_invoke.reset_mock()
+            mock_message = Mock()
+            mock_message.topic = topic
+            mock_message.value = b'{"test": "data"}'
+            
+            process_message(mock_message)
+            
+            assert mock_invoke.call_args[0][0] == expected_function, \
+                f"Topic {topic} should route to {expected_function}"
 
 
 class TestFunctionInvocation:
     """Unit tests for function invocation."""
     
     @patch('requests.post')
-    def test_invoke_function_success(self, mock_post):
-        """Test successful function invocation."""
+    def test_invoke_function_success_json(self, mock_post):
+        """Test successful function invocation with JSON response."""
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.json.return_value = {"result": "success"}
-        mock_response.headers = {"content-type": "application/json"}
         mock_post.return_value = mock_response
         
         result = invoke_function("test-function", {"data": "test"})
+        
         assert result == {"result": "success"}
         mock_post.assert_called_once()
+        call_args = mock_post.call_args
+        assert "test-function" in call_args[0][0]
+        assert call_args[1]["json"] == {"data": "test"}
+    
+    @patch('requests.post')
+    def test_invoke_function_success_text(self, mock_post):
+        """Test successful function invocation with text response."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.side_effect = ValueError("Not JSON")
+        mock_response.text = "plain text response"
+        mock_post.return_value = mock_response
+        
+        result = invoke_function("test-function", {"data": "test"})
+        
+        assert result == {"text": "plain text response"}
     
     @patch('requests.post')
     def test_invoke_function_failure(self, mock_post):
-        """Test function invocation failure."""
+        """Test function invocation failure (non-200 status)."""
         mock_response = Mock()
         mock_response.status_code = 500
+        mock_response.text = "Internal Server Error"
         mock_post.return_value = mock_response
         
         result = invoke_function("test-function", {"data": "test"})
+        
         assert result is None
     
     @patch('requests.post')
     def test_invoke_function_exception(self, mock_post):
-        """Test function invocation with exception."""
+        """Test function invocation with connection exception."""
         mock_post.side_effect = Exception("Connection error")
         
         result = invoke_function("test-function", {"data": "test"})
+        
+        assert result is None
+    
+    @patch('requests.post')
+    def test_invoke_function_timeout(self, mock_post):
+        """Test function invocation with timeout."""
+        import requests
+        mock_post.side_effect = requests.exceptions.Timeout("Request timed out")
+        
+        result = invoke_function("test-function", {"data": "test"})
+        
         assert result is None
 
 
-class TestRedisInitialization:
-    """Unit tests for Redis initialization."""
+class TestEndToEnd:
+    """End-to-end tests for message processing flow."""
     
-    @patch('redis.Redis')
-    def test_init_redis_client_success(self, mock_redis_class):
-        """Test successful Redis initialization."""
-        mock_client = Mock()
-        mock_client.ping.return_value = True
-        mock_redis_class.return_value = mock_client
+    @patch('requests.post')
+    def test_full_message_flow_embedding(self, mock_post):
+        """Test full flow: message received → function invoked → result returned."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"embeddings": [[0.1, 0.2, 0.3]]}
+        mock_post.return_value = mock_response
         
-        # Reset global state
-        import connector
-        connector.redis_client = None
+        mock_message = Mock()
+        mock_message.topic = "text-chunks"
+        mock_message.value = b'{"text": "document chunk", "chunk_id": "1"}'
         
-        result = init_redis_client()
-        assert result is not None
-        mock_redis_class.assert_called_once()
-        mock_client.ping.assert_called_once()
+        # Process should complete without error
+        process_message(mock_message)
+        
+        # Verify function was called with correct data
+        mock_post.assert_called_once()
+        call_args = mock_post.call_args
+        assert "embedding-generation" in call_args[0][0]
+        assert call_args[1]["json"] == {"text": "document chunk", "chunk_id": "1"}
     
-    @patch('redis.Redis')
-    def test_init_redis_client_failure(self, mock_redis_class):
-        """Test Redis initialization failure."""
-        mock_client = Mock()
-        mock_client.ping.side_effect = Exception("Connection failed")
-        mock_redis_class.return_value = mock_client
+    @patch('requests.post')
+    def test_full_message_flow_conversation(self, mock_post):
+        """Test full flow for conversation events."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"status": "stored", "message_id": "msg-1"}
+        mock_post.return_value = mock_response
         
-        # Reset global state
-        import connector
-        connector.redis_client = None
+        mock_message = Mock()
+        mock_message.topic = "conversation-events"
+        mock_message.value = json.dumps({
+            "session_id": "session-123",
+            "role": "user",
+            "content": "Hello, how are you?",
+            "timestamp": "2026-01-17T10:00:00Z"
+        }).encode()
         
-        result = init_redis_client()
-        assert result is None
+        process_message(mock_message)
+        
+        mock_post.assert_called_once()
+        call_args = mock_post.call_args
+        assert "conversation-manager" in call_args[0][0]
     
-    @patch('redis.Redis')
-    def test_init_redis_client_connection_error(self, mock_redis_class):
-        """Test Redis initialization with connection error."""
-        mock_redis_class.side_effect = Exception("Cannot connect")
+    @patch('requests.post')
+    def test_full_message_flow_summarization(self, mock_post):
+        """Test full flow for summarization triggers."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "summary": "User discussed various topics...",
+            "original_messages": 25,
+            "original_tokens": 5000
+        }
+        mock_post.return_value = mock_response
         
-        # Reset global state
-        import connector
-        connector.redis_client = None
+        mock_message = Mock()
+        mock_message.topic = "summarization-triggers"
+        mock_message.value = json.dumps({
+            "session_id": "session-456",
+            "trigger_reason": "token_threshold",
+            "current_tokens": 5000,
+            "current_messages": 25
+        }).encode()
         
-        result = init_redis_client()
-        assert result is None
+        process_message(mock_message)
+        
+        mock_post.assert_called_once()
+        call_args = mock_post.call_args
+        assert "context-summarizer" in call_args[0][0]
 
 
 if __name__ == "__main__":

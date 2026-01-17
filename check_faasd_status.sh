@@ -2,126 +2,206 @@
 # Diagnostic script to check faasd status and troubleshoot deployment issues
 
 echo "=========================================="
-echo "faasd Status Check"
+echo "faasd Status Check for SLO-RAG"
 echo "=========================================="
 echo ""
 
-# Check if faasd services are running
-echo "1. Checking faasd services status..."
-sudo systemctl status faasd faasd-provider --no-pager -l | head -20
+FAASD_DIR="/var/lib/faasd"
+
+# Color codes for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+pass() { echo -e "${GREEN}✓${NC} $1"; }
+fail() { echo -e "${RED}✗${NC} $1"; }
+warn() { echo -e "${YELLOW}⚠${NC} $1"; }
+
+# 1. Check faasd services
+echo "1. Checking faasd systemd services..."
+if systemctl is-active --quiet faasd; then
+    pass "faasd service is running"
+else
+    fail "faasd service is NOT running"
+fi
+if systemctl is-active --quiet faasd-provider; then
+    pass "faasd-provider service is running"
+else
+    fail "faasd-provider service is NOT running"
+fi
 echo ""
 
-# Check if gateway is accessible
+# 2. Check gateway accessibility
 echo "2. Checking gateway accessibility..."
-if curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8080/system/functions | grep -q "200\|401"; then
-    echo "✓ Gateway is accessible at http://127.0.0.1:8080"
+GATEWAY_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8080/healthz 2>/dev/null || echo "000")
+if [ "$GATEWAY_STATUS" = "200" ]; then
+    pass "Gateway is accessible at http://127.0.0.1:8080 (HTTP $GATEWAY_STATUS)"
+elif [ "$GATEWAY_STATUS" = "401" ]; then
+    pass "Gateway is accessible (requires auth)"
 else
-    echo "✗ Gateway is NOT accessible at http://127.0.0.1:8080"
-    echo "  Connection refused means faasd gateway is not running"
+    fail "Gateway is NOT accessible (HTTP $GATEWAY_STATUS)"
 fi
 echo ""
 
-# Check if docker-compose.yaml exists in faasd directory
+# 3. Check docker-compose.yaml
 echo "3. Checking faasd docker-compose.yaml..."
-if [ -f "/var/lib/faasd/docker-compose.yaml" ]; then
-    echo "✓ docker-compose.yaml exists at /var/lib/faasd/docker-compose.yaml"
-    echo "  File size: $(stat -c%s /var/lib/faasd/docker-compose.yaml) bytes"
+if [ -f "$FAASD_DIR/docker-compose.yaml" ]; then
+    pass "docker-compose.yaml exists ($(stat -c%s $FAASD_DIR/docker-compose.yaml) bytes)"
 else
-    echo "✗ docker-compose.yaml NOT found at /var/lib/faasd/docker-compose.yaml"
-    echo "  You need to copy it from the project directory"
+    fail "docker-compose.yaml NOT found at $FAASD_DIR/"
 fi
 echo ""
 
-# Check if required directories exist
+# 4. Check required directories
 echo "4. Checking required directories..."
 REQUIRED_DIRS=(
-    "/var/lib/faasd/secrets"
-    "/var/lib/faasd/nats"
-    "/var/lib/faasd/prometheus"
+    "$FAASD_DIR/secrets"
+    "$FAASD_DIR/nats"
+    "$FAASD_DIR/prometheus"
+    "$FAASD_DIR/minio-data"
+    "$FAASD_DIR/redis-data"
+    "$FAASD_DIR/qdrant-data"
 )
-
 for dir in "${REQUIRED_DIRS[@]}"; do
     if [ -d "$dir" ]; then
-        echo "✓ $dir exists"
+        pass "$dir"
     else
-        echo "✗ $dir does NOT exist"
+        fail "$dir does NOT exist"
     fi
 done
 echo ""
 
-# Check if secrets exist
+# 5. Check secrets
 echo "5. Checking faasd secrets..."
-if [ -f "/var/lib/faasd/secrets/basic-auth-password" ]; then
-    echo "✓ basic-auth-password exists"
+if [ -f "$FAASD_DIR/secrets/basic-auth-password" ]; then
+    pass "basic-auth-password exists"
 else
-    echo "✗ basic-auth-password NOT found"
-    echo "  This is required for faasd to work"
+    fail "basic-auth-password NOT found"
 fi
-
-if [ -f "/var/lib/faasd/secrets/basic-auth-user" ]; then
-    echo "✓ basic-auth-user exists"
+if [ -f "$FAASD_DIR/secrets/basic-auth-user" ]; then
+    pass "basic-auth-user exists"
 else
-    echo "✗ basic-auth-user NOT found"
+    fail "basic-auth-user NOT found"
 fi
 echo ""
 
-# Check containerd tasks (faasd uses containerd, not docker)
-echo "6. Checking containerd tasks..."
+# 6. Check containerd containers
+echo "6. Checking containerd containers (faasd runtime)..."
 if command -v ctr &> /dev/null; then
-    echo "Containerd tasks in openfaas namespace:"
-    sudo ctr -n openfaas tasks ls 2>/dev/null || echo "  No tasks found or containerd not accessible"
+    echo "   Containers in openfaas namespace:"
+    CONTAINERS=$(sudo ctr -n openfaas containers ls 2>/dev/null | tail -n +2)
+    if [ -n "$CONTAINERS" ]; then
+        echo "$CONTAINERS" | while read line; do
+            NAME=$(echo "$line" | awk '{print $1}')
+            echo "   • $NAME"
+        done
+    else
+        warn "No containers found"
+    fi
 else
-    echo "✗ ctr command not found (containerd CLI)"
+    warn "ctr command not found (containerd CLI)"
 fi
 echo ""
 
-# Check network connectivity
-echo "7. Checking network ports..."
-if netstat -tuln 2>/dev/null | grep -q ":8080"; then
-    echo "✓ Port 8080 is listening"
-    netstat -tuln 2>/dev/null | grep ":8080"
+# 7. Check service ports
+echo "7. Checking service ports..."
+check_port() {
+    local port=$1
+    local service=$2
+    if ss -tlnp 2>/dev/null | grep -q ":$port "; then
+        pass "Port $port ($service) is listening"
+    else
+        fail "Port $port ($service) is NOT listening"
+    fi
+}
+
+check_port 8080 "Gateway"
+check_port 9002 "MinIO API"
+check_port 9003 "MinIO Console"
+check_port 19092 "Redpanda external"
+check_port 6379 "Redis"
+check_port 6333 "Qdrant"
+check_port 8888 "Redpanda Console"
+check_port 9090 "Prometheus"
+echo ""
+
+# 8. Check service health
+echo "8. Checking service health..."
+
+# Redis (try redis-cli if available, otherwise use nc/curl)
+if command -v redis-cli &> /dev/null; then
+    REDIS_PING=$(redis-cli -h 127.0.0.1 -p 6379 ping 2>/dev/null || echo "FAIL")
+    if [ "$REDIS_PING" = "PONG" ]; then
+        pass "Redis is responding"
+    else
+        fail "Redis is NOT responding"
+    fi
 else
-    echo "✗ Port 8080 is NOT listening"
-    echo "  This means the gateway is not running"
+    # Fallback: check if port accepts connections
+    if timeout 2 bash -c 'echo PING | nc -q1 127.0.0.1 6379 2>/dev/null' | grep -q "PONG"; then
+        pass "Redis is responding"
+    elif ss -tlnp | grep -q ":6379 "; then
+        warn "Redis port is open (redis-cli not installed for full check)"
+    else
+        fail "Redis is NOT responding"
+    fi
+fi
+
+# Qdrant
+QDRANT_STATUS=$(curl -s http://127.0.0.1:6333/collections 2>/dev/null | grep -c '"status":"ok"' || echo "0")
+if [ "$QDRANT_STATUS" -ge 1 ]; then
+    pass "Qdrant is responding"
+else
+    fail "Qdrant is NOT responding"
+fi
+
+# MinIO (port 9002 maps to internal 9000)
+MINIO_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:9002/minio/health/live 2>/dev/null || echo "000")
+if [ "$MINIO_STATUS" = "200" ]; then
+    pass "MinIO is healthy"
+else
+    warn "MinIO health check returned HTTP $MINIO_STATUS"
+fi
+
+echo ""
+
+# 9. Check deployed functions
+echo "9. Checking deployed functions..."
+FUNCTIONS=$(curl -s http://127.0.0.1:8080/system/functions 2>/dev/null)
+if [ -n "$FUNCTIONS" ] && [ "$FUNCTIONS" != "[]" ]; then
+    echo "$FUNCTIONS" | grep -o '"name":"[^"]*"' | sed 's/"name":"//g' | sed 's/"//g' | while read func; do
+        pass "Function: $func"
+    done
+else
+    warn "No functions deployed (or auth required)"
 fi
 echo ""
 
-# Summary and recommendations
+# Summary
 echo "=========================================="
-echo "Summary and Recommendations"
+echo "Summary"
 echo "=========================================="
 echo ""
 
-if ! curl -s http://127.0.0.1:8080/system/functions > /dev/null 2>&1; then
-    echo "ISSUE: Gateway is not accessible"
+if [ "$GATEWAY_STATUS" = "200" ] || [ "$GATEWAY_STATUS" = "401" ]; then
+    echo "faasd infrastructure appears to be running."
     echo ""
-    echo "To fix this, run the following commands:"
-    echo ""
-    echo "1. Copy docker-compose.yaml to faasd directory:"
-    echo "   sudo cp /root/projects/SLO-RAG/docker-compose.yaml /var/lib/faasd/docker-compose.yaml"
-    echo ""
-    echo "2. Create required directories if they don't exist:"
-    echo "   sudo mkdir -p /var/lib/faasd/{nats,prometheus,minio-data,redis-data,qdrant-data}"
-    echo ""
-    echo "3. Restart faasd to apply changes:"
-    echo "   sudo systemctl restart faasd"
-    echo ""
-    echo "4. Wait a few seconds, then check status:"
-    echo "   sudo systemctl status faasd"
-    echo ""
-    echo "5. Check gateway is accessible:"
-    echo "   curl http://127.0.0.1:8080/system/functions"
-    echo ""
-    echo "6. If gateway is accessible, login and deploy:"
-    echo "   sudo cat /var/lib/faasd/secrets/basic-auth-password | faas-cli login -s"
-    echo "   export DOCKER_USER=<your-dockerhub-username>"
-    echo "   faas-cli deploy -f stack.yaml"
+    echo "To deploy functions:"
+    echo "  1. Login:  sudo cat /var/lib/faasd/secrets/basic-auth-password | faas-cli login -s"
+    echo "  2. Deploy: faas-cli up -f stack.yaml"
 else
-    echo "✓ Gateway appears to be accessible"
+    echo "faasd infrastructure has issues. Try:"
     echo ""
-    echo "If deployment still fails, check:"
-    echo "1. Are you logged in? Run: sudo cat /var/lib/faasd/secrets/basic-auth-password | faas-cli login -s"
-    echo "2. Is DOCKER_USER set? Run: export DOCKER_USER=<your-dockerhub-username>"
-    echo "3. Have you published the images? Run: faas-cli publish -f stack.yaml"
+    echo "  1. Run setup script: sudo ./setup_faasd.sh"
+    echo "  2. Check logs:       journalctl -u faasd -f"
+    echo "  3. Restart faasd:    sudo systemctl restart faasd"
 fi
+echo ""
+
+# Recent faasd logs
+echo "=========================================="
+echo "Recent faasd logs (last 10 lines)"
+echo "=========================================="
+journalctl -u faasd --no-pager -n 10 2>/dev/null || echo "Unable to read logs"
 echo ""

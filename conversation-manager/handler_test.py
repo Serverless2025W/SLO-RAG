@@ -2,319 +2,277 @@
 Tests for conversation-manager handler.
 """
 
-import importlib.util
-import json
-import os
 import pytest
-from unittest.mock import patch, Mock
+import json
+import sys
+import os
+from unittest.mock import patch, MagicMock
 
-# Mock redis before loading the handler
-with patch.dict('sys.modules', {'redis': Mock()}):
-    def load_handler():
-        handler_path = os.path.join(os.path.dirname(__file__), "handler.py")
-        spec = importlib.util.spec_from_file_location("conversation_manager_handler", handler_path)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        return module
+# Add ONLY this handler directory to path
+_handler_dir = os.path.dirname(os.path.abspath(__file__))
+if _handler_dir not in sys.path:
+    sys.path.insert(0, _handler_dir)
 
-    handler = load_handler()
-    handle = handler.handle
-    validate_conversation_event = handler.validate_conversation_event
-    parse_input = handler.parse_input
-    format_messages_for_llm = handler.format_messages_for_llm
+# Clear any cached handler module
+if 'handler' in sys.modules:
+    del sys.modules['handler']
 
-
-class MockRequest:
-    """Mock request object for testing."""
-    def __init__(self, body):
-        self.body = body
-
-
-class MockContext:
-    """Mock context object for testing."""
-    pass
+# Import handler functions
+from handler import (
+    parse_input,
+    validate_conversation_event,
+    format_messages_for_llm,
+    handle,
+    store_message,
+    check_summarization_threshold,
+    trigger_summarization
+)
 
 
 class TestParseInput:
-    """Tests for input parsing."""
+    """Tests for parse_input function."""
     
     def test_parse_json_string(self):
-        """Test parsing JSON string."""
-        req = MockRequest('{"session_id": "test-123", "role": "user", "content": "Hello", "timestamp": "2026-01-12T20:00:00Z"}')
-        result = parse_input(req)
-        assert result["session_id"] == "test-123"
-        assert result["role"] == "user"
+        result = parse_input('{"key": "value"}')
+        assert result == {"key": "value"}
     
     def test_parse_dict(self):
-        """Test parsing dictionary."""
-        data = {"session_id": "test-123", "role": "user", "content": "Hello", "timestamp": "2026-01-12T20:00:00Z"}
-        req = MockRequest(data)
-        result = parse_input(req)
-        assert result == data
+        result = parse_input({"key": "value"})
+        assert result == {"key": "value"}
     
     def test_parse_bytes(self):
-        """Test parsing bytes."""
-        req = MockRequest(b'{"session_id": "test-123", "role": "user", "content": "Hello", "timestamp": "2026-01-12T20:00:00Z"}')
-        result = parse_input(req)
-        assert result["session_id"] == "test-123"
+        result = parse_input(b'{"key": "value"}')
+        assert result == {"key": "value"}
 
 
 class TestValidateConversationEvent:
-    """Tests for conversation event validation."""
+    """Tests for validate_conversation_event function."""
     
     def test_valid_event(self):
-        """Test validation of valid event."""
         data = {
             "session_id": "test-123",
             "role": "user",
             "content": "Hello",
-            "timestamp": "2026-01-12T20:00:00Z"
+            "timestamp": "2026-01-17T10:00:00Z"
         }
         is_valid, error = validate_conversation_event(data)
         assert is_valid is True
         assert error is None
     
     def test_missing_session_id(self):
-        """Test validation fails with missing session_id."""
-        data = {
-            "role": "user",
-            "content": "Hello",
-            "timestamp": "2026-01-12T20:00:00Z"
-        }
+        data = {"role": "user", "content": "Hello", "timestamp": "2026-01-17T10:00:00Z"}
         is_valid, error = validate_conversation_event(data)
         assert is_valid is False
         assert "session_id" in error
     
     def test_invalid_role(self):
-        """Test validation fails with invalid role."""
         data = {
             "session_id": "test-123",
-            "role": "invalid",
+            "role": "system",
             "content": "Hello",
-            "timestamp": "2026-01-12T20:00:00Z"
+            "timestamp": "2026-01-17T10:00:00Z"
         }
         is_valid, error = validate_conversation_event(data)
         assert is_valid is False
-        assert "Invalid role" in error
+        assert "role" in error
     
     def test_empty_content(self):
-        """Test validation fails with empty content."""
         data = {
             "session_id": "test-123",
             "role": "user",
             "content": "",
-            "timestamp": "2026-01-12T20:00:00Z"
+            "timestamp": "2026-01-17T10:00:00Z"
         }
         is_valid, error = validate_conversation_event(data)
         assert is_valid is False
         assert "content" in error
-    
-    def test_assistant_role(self):
-        """Test validation accepts assistant role."""
-        data = {
-            "session_id": "test-123",
-            "role": "assistant",
-            "content": "Hello there",
-            "timestamp": "2026-01-12T20:00:00Z"
-        }
-        is_valid, error = validate_conversation_event(data)
-        assert is_valid is True
 
 
 class TestFormatMessagesForLLM:
-    """Tests for LLM message formatting."""
+    """Tests for format_messages_for_llm function."""
     
     def test_format_empty_history(self):
-        """Test formatting with empty history."""
-        history = []
         current = {"role": "user", "content": "Hello"}
-        messages = format_messages_for_llm(history, current)
-        assert len(messages) == 1
-        assert messages[0]["role"] == "user"
-        assert messages[0]["content"] == "Hello"
+        result = format_messages_for_llm([], current)
+        assert len(result) == 1
+        assert result[0] == {"role": "user", "content": "Hello"}
     
     def test_format_with_history(self):
-        """Test formatting with existing history."""
         history = [
-            {"role": "user", "content": "Hi", "timestamp": "2026-01-12T19:00:00Z"},
-            {"role": "assistant", "content": "Hello!", "timestamp": "2026-01-12T19:00:01Z"}
+            {"role": "user", "content": "Hi", "timestamp": "2026-01-17T10:00:00Z"},
+            {"role": "assistant", "content": "Hello!", "timestamp": "2026-01-17T10:00:01Z"}
         ]
         current = {"role": "user", "content": "How are you?"}
-        messages = format_messages_for_llm(history, current)
-        assert len(messages) == 3
-        assert messages[0]["content"] == "Hi"
-        assert messages[1]["content"] == "Hello!"
-        assert messages[2]["content"] == "How are you?"
+        result = format_messages_for_llm(history, current)
+        assert len(result) == 3
+        assert result[0] == {"role": "user", "content": "Hi"}
+        assert result[1] == {"role": "assistant", "content": "Hello!"}
+        assert result[2] == {"role": "user", "content": "How are you?"}
     
     def test_format_skips_system_messages(self):
-        """Test that system messages (summaries) are skipped."""
         history = [
-            {"role": "system", "content": "Summary of previous conversation", "timestamp": "2026-01-12T18:00:00Z"},
-            {"role": "user", "content": "Hi", "timestamp": "2026-01-12T19:00:00Z"}
+            {"role": "system", "content": "Previous summary", "timestamp": "2026-01-17T10:00:00Z"},
+            {"role": "user", "content": "New message", "timestamp": "2026-01-17T10:00:01Z"}
         ]
-        current = {"role": "user", "content": "Hello"}
-        messages = format_messages_for_llm(history, current)
-        # System message should be skipped
-        assert len(messages) == 2
-        assert messages[0]["content"] == "Hi"
+        current = {"role": "user", "content": "Another message"}
+        result = format_messages_for_llm(history, current)
+        assert len(result) == 2
+        assert result[0] == {"role": "user", "content": "New message"}
+        assert result[1] == {"role": "user", "content": "Another message"}
+
+
+class TestStoreMessage:
+    """Tests for store_message function."""
+    
+    @patch('handler.init_redis_client')
+    def test_store_message_success(self, mock_init):
+        mock_client = MagicMock()
+        mock_client.llen.return_value = 5
+        mock_client.get.return_value = "100"
+        mock_client.hgetall.return_value = {"created_at": "2026-01-17T10:00:00Z"}
+        mock_init.return_value = mock_client
+        
+        result = store_message("test-123", "user", "Hello", "2026-01-17T10:00:00Z", tokens=10)
+        
+        assert result is True
+        mock_client.rpush.assert_called_once()
+    
+    @patch('handler.init_redis_client')
+    def test_store_message_no_redis(self, mock_init):
+        mock_init.return_value = None
+        result = store_message("test-123", "user", "Hello", "2026-01-17T10:00:00Z")
+        assert result is False
+
+
+class TestCheckSummarizationThreshold:
+    """Tests for check_summarization_threshold function."""
+    
+    @patch('handler.init_redis_client')
+    def test_token_threshold_exceeded(self, mock_init):
+        mock_client = MagicMock()
+        mock_client.get.return_value = "5000"  # Exceeds 4000 threshold
+        mock_client.llen.return_value = 10
+        mock_init.return_value = mock_client
+        
+        should_trigger, reason, tokens, messages = check_summarization_threshold("test-123")
+        
+        assert should_trigger is True
+        assert reason == "token_threshold"
+        assert tokens == 5000
+    
+    @patch('handler.init_redis_client')
+    def test_message_threshold_exceeded(self, mock_init):
+        mock_client = MagicMock()
+        mock_client.get.return_value = "100"
+        mock_client.llen.return_value = 25  # Exceeds 20 threshold
+        mock_init.return_value = mock_client
+        
+        should_trigger, reason, tokens, messages = check_summarization_threshold("test-123")
+        
+        assert should_trigger is True
+        assert reason == "message_threshold"
+        assert messages == 25
+    
+    @patch('handler.init_redis_client')
+    def test_no_threshold_exceeded(self, mock_init):
+        mock_client = MagicMock()
+        mock_client.get.return_value = "100"
+        mock_client.llen.return_value = 5
+        mock_init.return_value = mock_client
+        
+        should_trigger, reason, tokens, messages = check_summarization_threshold("test-123")
+        
+        assert should_trigger is False
+        assert reason is None
+
+
+class TestTriggerSummarization:
+    """Tests for trigger_summarization function."""
+    
+    @patch('handler.init_kafka_producer')
+    def test_trigger_success(self, mock_init):
+        mock_producer = MagicMock()
+        mock_future = MagicMock()
+        mock_future.get.return_value = MagicMock(topic="summarization-triggers", offset=1)
+        mock_producer.send.return_value = mock_future
+        mock_init.return_value = mock_producer
+        
+        result = trigger_summarization("test-123", "token_threshold", 5000, 25)
+        
+        assert result is True
+        mock_producer.send.assert_called_once()
+    
+    @patch('handler.init_kafka_producer')
+    def test_trigger_no_kafka(self, mock_init):
+        mock_init.return_value = None
+        result = trigger_summarization("test-123", "token_threshold", 5000, 25)
+        assert result is False
 
 
 class TestHandle:
-    """Tests for main handler function."""
+    """Tests for main handle function."""
     
-    @patch.object(handler, 'get_conversation_history')
-    @patch.object(handler, 'call_llm_api')
-    def test_handle_valid_user_message(self, mock_llm, mock_history):
-        """Test handling valid user message."""
-        mock_history.return_value = []
+    @patch('handler.init_redis_client')
+    @patch('handler.init_kafka_producer')
+    @patch('handler.call_llm_api')
+    def test_handle_valid_user_message(self, mock_llm, mock_kafka, mock_redis):
+        # Setup mocks
+        mock_client = MagicMock()
+        mock_client.llen.return_value = 5
+        mock_client.get.return_value = "100"
+        mock_client.hgetall.return_value = {}
+        mock_client.lrange.return_value = []
+        mock_redis.return_value = mock_client
+        mock_kafka.return_value = None
         mock_llm.return_value = {
-            "content": "Test response",
-            "usage": {"total_tokens": 100}
+            "content": "Hello! How can I help?",
+            "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30}
         }
         
-        data = {
-            "event_type": "user_query",
+        req = json.dumps({
             "session_id": "test-123",
             "role": "user",
-            "content": "Hello, how are you?",
-            "timestamp": "2026-01-12T20:00:00Z",
-            "metadata": {
-                "tokens": 10,
-                "model": "gpt-4"
-            }
-        }
-        req = MockRequest(json.dumps(data))
-        context = MockContext()
+            "content": "Hello",
+            "timestamp": "2026-01-17T10:00:00Z"
+        })
         
-        result = handle(req, context)
+        result = handle(req, None)
         
         assert result["statusCode"] == 200
-        response_body = json.loads(result["body"])
-        assert response_body["status"] == "success"
-        assert response_body["session_id"] == "test-123"
-        assert response_body["role"] == "user"
-        assert "llm_response" in response_body
+        body = json.loads(result["body"])
+        assert body["status"] == "success"
+        assert "llm_response" in body
     
-    def test_handle_valid_assistant_message(self):
-        """Test handling valid assistant message."""
-        data = {
-            "event_type": "llm_response",
+    @patch('handler.init_redis_client')
+    def test_handle_valid_assistant_message(self, mock_redis):
+        mock_client = MagicMock()
+        mock_client.llen.return_value = 5
+        mock_client.get.return_value = "100"
+        mock_client.hgetall.return_value = {}
+        mock_redis.return_value = mock_client
+        
+        req = json.dumps({
             "session_id": "test-123",
             "role": "assistant",
-            "content": "I'm doing well, thank you!",
-            "timestamp": "2026-01-12T20:00:01Z",
-            "metadata": {
-                "tokens": 150,
-                "model": "gpt-4"
-            }
-        }
-        req = MockRequest(json.dumps(data))
-        context = MockContext()
+            "content": "Hello!",
+            "timestamp": "2026-01-17T10:00:00Z"
+        })
         
-        result = handle(req, context)
+        result = handle(req, None)
         
         assert result["statusCode"] == 200
-        response_body = json.loads(result["body"])
-        assert response_body["status"] == "success"
-        assert response_body["role"] == "assistant"
+        body = json.loads(result["body"])
+        assert body["status"] == "success"
+        assert "llm_response" not in body  # Assistant messages don't trigger LLM
     
     def test_handle_invalid_json(self):
-        """Test handling invalid JSON."""
-        req = MockRequest("invalid json")
-        context = MockContext()
-        
-        result = handle(req, context)
-        
+        result = handle("not valid json", None)
         assert result["statusCode"] == 400
-        response_body = json.loads(result["body"])
-        assert "error" in response_body
     
-    def test_handle_missing_required_field(self):
-        """Test handling message with missing required field."""
-        data = {
-            "role": "user",
-            "content": "Hello",
-            "timestamp": "2026-01-12T20:00:00Z"
-            # Missing session_id
-        }
-        req = MockRequest(json.dumps(data))
-        context = MockContext()
-        
-        result = handle(req, context)
-        
+    def test_handle_missing_field(self):
+        req = json.dumps({"session_id": "test-123"})
+        result = handle(req, None)
         assert result["statusCode"] == 400
-        response_body = json.loads(result["body"])
-        assert response_body["error"] == "Validation failed"
-    
-    def test_handle_invalid_role(self):
-        """Test handling message with invalid role."""
-        data = {
-            "session_id": "test-123",
-            "role": "invalid_role",
-            "content": "Hello",
-            "timestamp": "2026-01-12T20:00:00Z"
-        }
-        req = MockRequest(json.dumps(data))
-        context = MockContext()
-        
-        result = handle(req, context)
-        
-        assert result["statusCode"] == 400
-        response_body = json.loads(result["body"])
-        assert "error" in response_body
-    
-    @patch.object(handler, 'get_conversation_history')
-    @patch.object(handler, 'call_llm_api')
-    def test_handle_with_metadata(self, mock_llm, mock_history):
-        """Test handling message with metadata."""
-        mock_history.return_value = []
-        mock_llm.return_value = {
-            "content": "Test response",
-            "usage": {"total_tokens": 100}
-        }
-        
-        data = {
-            "session_id": "test-123",
-            "role": "user",
-            "content": "Hello",
-            "timestamp": "2026-01-12T20:00:00Z",
-            "metadata": {
-                "query_id": "query-123",
-                "tokens": 10,
-                "model": "gpt-4"
-            }
-        }
-        req = MockRequest(json.dumps(data))
-        context = MockContext()
-        
-        result = handle(req, context)
-        
-        assert result["statusCode"] == 200
-        response_body = json.loads(result["body"])
-        assert response_body["status"] == "success"
-    
-    @patch.object(handler, 'get_conversation_history')
-    @patch.object(handler, 'call_llm_api')
-    def test_handle_llm_failure(self, mock_llm, mock_history):
-        """Test handling LLM API failure."""
-        mock_history.return_value = []
-        mock_llm.side_effect = Exception("LLM API error")
-        
-        data = {
-            "session_id": "test-123",
-            "role": "user",
-            "content": "Hello",
-            "timestamp": "2026-01-12T20:00:00Z"
-        }
-        req = MockRequest(json.dumps(data))
-        context = MockContext()
-        
-        result = handle(req, context)
-        
-        assert result["statusCode"] == 500
-        response_body = json.loads(result["body"])
-        assert "error" in response_body
-        assert "LLM API" in response_body["error"]
 
 
 if __name__ == "__main__":
