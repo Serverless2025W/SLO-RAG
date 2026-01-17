@@ -38,12 +38,12 @@ export default function QueryPage() {
               if (query.trim() && !isLoading) handleSubmit(e);
             }
           }}
-          placeholder="Enter your query... (Press Enter to search)"
+          placeholder="Ask SLO-RAG"
           rows={4}
           disabled={isLoading}
         />
         <button type="submit" disabled={isLoading || !query.trim()}>
-          {isLoading ? 'Searching...' : 'Search'}
+          {isLoading ? 'Searching...' : 'Execute'}
         </button>
       </form>
 
