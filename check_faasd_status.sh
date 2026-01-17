@@ -117,8 +117,8 @@ check_port() {
 }
 
 check_port 8080 "Gateway"
-check_port 9002 "MinIO API"
-check_port 9003 "MinIO Console"
+check_port 9000 "MinIO API"
+check_port 9001 "MinIO Console"
 check_port 19092 "Redpanda external"
 check_port 6379 "Redis"
 check_port 6333 "Qdrant"
