@@ -612,10 +612,10 @@ def main():
     log(f"Summarization Thresholds: {SUMMARIZATION_TOKEN_THRESHOLD} tokens, {SUMMARIZATION_MESSAGE_THRESHOLD} messages")
     log(f"Conversation TTL: {CONVERSATION_TTL} seconds ({CONVERSATION_TTL // 3600} hours)")
     
-    # Initialize Redis client (Phase 2) - graceful failure
+    # Initialize Redis client - graceful failure
     init_redis_client()
     
-    # Initialize Kafka Producer (Phase 4) - graceful failure
+    # Initialize Kafka Producer - graceful failure
     init_kafka_producer()
     
     # Initialize Kafka Consumer

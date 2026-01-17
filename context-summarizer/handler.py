@@ -3,14 +3,22 @@ Context Summarizer Handler - Workflow 4
 
 This handler receives summarization trigger events and generates summaries
 of conversation history when thresholds are exceeded.
-
-Note: Since LLMs are not included, this returns a placeholder summary.
-In a real implementation, this would use an LLM to summarize the conversation.
 """
 
 import json
-from typing import Dict, Any, Optional
+import os
+from typing import Dict, Any, Optional, List
 from datetime import datetime, timezone
+import redis
+
+# Redis Configuration
+REDIS_HOST = os.getenv("REDIS_HOST", "redis")
+REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+REDIS_DB = int(os.getenv("REDIS_DB", "0"))
+REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", None)
+
+# Redis client (initialized lazily)
+redis_client: Optional[redis.Redis] = None
 
 def log(message):
     """Log message with flush enabled."""
@@ -19,6 +27,147 @@ def log(message):
 def utc_now_iso() -> str:
     """Return UTC timestamp in ISO 8601 with Z suffix."""
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+def init_redis_client() -> Optional[redis.Redis]:
+    """Initialize Redis client with graceful fallback."""
+    global redis_client
+    if redis_client is not None:
+        return redis_client
+    
+    try:
+        client = redis.Redis(
+            host=REDIS_HOST,
+            port=REDIS_PORT,
+            db=REDIS_DB,
+            password=REDIS_PASSWORD,
+            decode_responses=True,
+            socket_connect_timeout=2,
+            socket_timeout=2
+        )
+        # Test connection
+        client.ping()
+        redis_client = client
+        log(f"Successfully connected to Redis at {REDIS_HOST}:{REDIS_PORT}")
+        return redis_client
+    except Exception as e:
+        log(f"WARNING: Could not connect to Redis: {e}. Continuing without Redis.")
+        return None
+
+def get_conversation_history(session_id: str, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+    """
+    Retrieve conversation history from Redis.
+    
+    Args:
+        session_id: Session identifier
+        limit: Maximum number of messages to retrieve (None = all)
+    
+    Returns:
+        List of message dictionaries with role, content, timestamp
+    """
+    client = init_redis_client()
+    if client is None:
+        return []
+    
+    try:
+        key = f"conversation:{session_id}"
+        if limit:
+            messages = client.lrange(key, -limit, -1)
+        else:
+            messages = client.lrange(key, 0, -1)
+        
+        if messages:
+            log(f"Retrieved {len(messages)} messages from conversation history for session {session_id}")
+            return [json.loads(msg) for msg in messages]
+        return []
+    except Exception as e:
+        log(f"WARNING: Failed to read conversation history from Redis: {e}")
+        return []
+
+def format_messages_for_summarization(history: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+    """
+    Format conversation history for summarization LLM call.
+    
+    Args:
+        history: Conversation messages from Redis
+    
+    Returns:
+        List of messages in LLM API format, excluding system messages
+    """
+    messages = []
+    
+    for msg in history:
+        role = msg.get("role", "user")
+        content = msg.get("content", "")
+        # Skip system messages (they're previous summaries)
+        if role != "system":
+            messages.append({
+                "role": role,
+                "content": content
+            })
+    
+    return messages
+
+def call_llm_for_summarization(messages: List[Dict[str, str]], model: str = None) -> Dict[str, Any]:
+    """
+    Call LLM API to generate conversation summary.
+    
+    Args:
+        messages: Formatted conversation messages
+        model: Model name to use (defaults to SUMMARIZATION_MODEL env var)
+    
+    Returns:
+        Response from LLM API with 'summary' text
+    
+    TODO: Replace placeholder with actual LLM implementation
+    """
+    if model is None:
+        model = os.getenv("LLM_MODEL", "gpt-3.5-turbo")
+    
+    # ==========================================================================
+    # TODO: Uncomment below and add 'from llm_service import LLMClient' at top
+    # ==========================================================================
+    # api_key = os.getenv("LLM_API_KEY")
+    # if not api_key:
+    #     raise ValueError("LLM_API_KEY environment variable not set")
+    # 
+    # client = LLMClient(api_key=api_key)
+    # 
+    # system_prompt = {
+    #     "role": "system",
+    #     "content": "You are a helpful assistant that summarizes conversations. "
+    #                "Create a concise summary that captures the key points, context, "
+    #                "and important information from the conversation. "
+    #                "The summary should be brief but preserve essential context for future reference."
+    # }
+    # 
+    # response = client.chat.completions.create(
+    #     model=model,
+    #     messages=[system_prompt] + messages,
+    #     temperature=0.3,
+    #     max_tokens=500
+    # )
+    # 
+    # return {
+    #     "summary": response.choices[0].message.content,
+    #     "usage": {
+    #         "prompt_tokens": response.usage.prompt_tokens,
+    #         "completion_tokens": response.usage.completion_tokens,
+    #         "total_tokens": response.usage.total_tokens
+    #     }
+    # }
+    # ==========================================================================
+    
+    # TODO: Remove this placeholder block
+    log(f"[PLACEHOLDER] Would call LLM API for summarization with {len(messages)} messages, model: {model}")
+    
+    return {
+        "summary": f"[Summary placeholder - implement call_llm_for_summarization()]. Original conversation had {len(messages)} messages.",
+        "usage": {
+            "prompt_tokens": 200,
+            "completion_tokens": 100,
+            "total_tokens": 300
+        }
+    }
 
 def parse_input(req) -> Dict[str, Any]:
     """Parse input from request body."""
@@ -63,28 +212,6 @@ def validate_summarization_trigger(data: Dict[str, Any]) -> tuple[bool, Optional
     
     return True, None
 
-def generate_summary_placeholder(session_id: str, trigger_reason: str, message_count: int, token_count: int) -> str:
-    """
-    Generate a placeholder summary (for testing).
-    
-    In a real implementation, this would:
-    1. Retrieve conversation history from Redis
-    2. Use an LLM to generate a concise summary
-    3. Return the summary text
-    
-    Args:
-        session_id: Session identifier
-        trigger_reason: Reason for summarization
-        message_count: Number of messages in conversation
-        token_count: Total tokens in conversation
-    
-    Returns:
-        Summary text (placeholder)
-    """
-    return f"Conversation summary for session {session_id}. " \
-           f"Triggered by {trigger_reason}. " \
-           f"Compressed {message_count} messages ({token_count} tokens) " \
-           f"into a summary."
 
 def handle(req, context):
     """
@@ -149,31 +276,62 @@ def handle(req, context):
     log(f"Current: {current_messages} messages, {current_tokens} tokens")
     log(f"Threshold: {threshold}")
     
-    # In a real implementation, this handler would:
-    # 1. Retrieve conversation history from Redis (via connector or direct access)
-    # 2. Use an LLM service to generate a summary
-    # 3. Return the summary text
-    #
-    # For now, this returns a placeholder summary.
-    # The connector will replace the conversation history with this summary.
+    # Retrieve conversation history from Redis
+    history = get_conversation_history(session_id)  # Get all messages
+    log(f"Retrieved {len(history)} messages from conversation history")
     
-    summary_text = generate_summary_placeholder(
-        session_id, trigger_reason, current_messages, current_tokens
-    )
+    if not history:
+        log(f"WARNING: No conversation history found for session {session_id}")
+        return {
+            "statusCode": 404,
+            "body": json.dumps({
+                "error": "No conversation history found",
+                "session_id": session_id
+            })
+        }
     
-    timestamp = utc_now_iso()
+    # Format messages for summarization
+    formatted_messages = format_messages_for_summarization(history)
+    log(f"Formatted {len(formatted_messages)} messages for summarization (excluding system messages)")
     
-    return {
-        "statusCode": 200,
-        "body": json.dumps({
-            "status": "success",
-            "session_id": session_id,
-            "summary": summary_text,
-            "timestamp": timestamp,
-            "trigger_reason": trigger_reason,
-            "compressed_from": {
-                "messages": current_messages,
-                "tokens": current_tokens
-            }
-        })
-    }
+    # Get model from environment or use default
+    model = os.getenv("LLM_MODEL", "gpt-3.5-turbo")
+    
+    # Call LLM API for summarization (TODO: Replace with actual LLM call)
+    try:
+        llm_response = call_llm_for_summarization(formatted_messages, model=model)
+        
+        summary_text = llm_response.get("summary", "")
+        usage = llm_response.get("usage", {})
+        
+        log(f"Generated summary: {len(summary_text)} characters")
+        if usage:
+            log(f"Token usage: {usage.get('total_tokens', 0)} total")
+        
+        timestamp = utc_now_iso()
+        
+        return {
+            "statusCode": 200,
+            "body": json.dumps({
+                "status": "success",
+                "session_id": session_id,
+                "summary": summary_text,
+                "timestamp": timestamp,
+                "trigger_reason": trigger_reason,
+                "compressed_from": {
+                    "messages": current_messages,
+                    "tokens": current_tokens
+                },
+                "usage": usage
+            })
+        }
+    except Exception as e:
+        log(f"ERROR: LLM summarization failed: {e}")
+        return {
+            "statusCode": 500,
+            "body": json.dumps({
+                "error": "LLM summarization failed",
+                "details": str(e),
+                "session_id": session_id
+            })
+        }

@@ -33,9 +33,24 @@ functions:
     lang: python3-http
     handler: ./conversation-manager
     image: ${DOCKER_USER}/conversation-manager:latest
+    environment:
+      REDIS_HOST: "redis"
+      REDIS_PORT: "6379"
+      REDIS_DB: "0"
+      # TODO: Add these LLM environment variables
+      # LLM_API_KEY: "${LLM_API_KEY}"
+      # LLM_MODEL: "{LLM_MODEL}"
+      PYTHONUNBUFFERED: "1"
 
   context-summarizer:
     lang: python3-http
     handler: ./context-summarizer
     image: ${DOCKER_USER}/context-summarizer:latest
-
+    environment:
+      REDIS_HOST: "redis"
+      REDIS_PORT: "6379"
+      REDIS_DB: "0"
+      # TODO: Add these LLM environment variables
+      # LLM_API_KEY: "${LLM_API_KEY}"
+      # LLM_MODEL: "{LLM_MODEL}"
+      PYTHONUNBUFFERED: "1"

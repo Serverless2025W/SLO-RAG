@@ -2,18 +2,174 @@
 Conversation Manager Handler - Workflow 3
 
 This handler receives conversation events and LLM responses.
-It validates the messages and provides an interface for LLM services.
+It validates the messages, retrieves conversation history, and formats for LLM.
 
 Note: The actual conversation state management is handled by the connector
-(which stores messages in Redis). This handler serves as an interface/validation layer.
+(which stores messages in Redis). This handler retrieves history and formats for LLM.
 """
 
 import json
-from typing import Dict, Any, Optional
+import os
+from typing import Dict, Any, Optional, List
+import redis
+
+# Redis Configuration
+REDIS_HOST = os.getenv("REDIS_HOST", "redis")
+REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+REDIS_DB = int(os.getenv("REDIS_DB", "0"))
+REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", None)
+
+# Redis client (initialized lazily)
+redis_client: Optional[redis.Redis] = None
 
 def log(message):
     """Log message with flush enabled."""
     print(message, flush=True)
+
+def init_redis_client() -> Optional[redis.Redis]:
+    """Initialize Redis client with graceful fallback."""
+    global redis_client
+    if redis_client is not None:
+        return redis_client
+    
+    try:
+        client = redis.Redis(
+            host=REDIS_HOST,
+            port=REDIS_PORT,
+            db=REDIS_DB,
+            password=REDIS_PASSWORD,
+            decode_responses=True,
+            socket_connect_timeout=2,
+            socket_timeout=2
+        )
+        # Test connection
+        client.ping()
+        redis_client = client
+        log(f"Successfully connected to Redis at {REDIS_HOST}:{REDIS_PORT}")
+        return redis_client
+    except Exception as e:
+        log(f"WARNING: Could not connect to Redis: {e}. Continuing without Redis.")
+        return None
+
+def get_conversation_history(session_id: str, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+    """
+    Retrieve conversation history from Redis.
+    
+    Args:
+        session_id: Session identifier
+        limit: Maximum number of messages to retrieve (None = all)
+    
+    Returns:
+        List of message dictionaries with role, content, timestamp
+    """
+    client = init_redis_client()
+    if client is None:
+        return []
+    
+    try:
+        key = f"conversation:{session_id}"
+        if limit:
+            messages = client.lrange(key, -limit, -1)
+        else:
+            messages = client.lrange(key, 0, -1)
+        
+        if messages:
+            log(f"Retrieved {len(messages)} messages from conversation history for session {session_id}")
+            return [json.loads(msg) for msg in messages]
+        return []
+    except Exception as e:
+        log(f"WARNING: Failed to read conversation history from Redis: {e}")
+        return []
+
+def format_messages_for_llm(history: List[Dict[str, Any]], current_message: Dict[str, Any]) -> List[Dict[str, str]]:
+    """
+    Format conversation history for LLM API.
+    
+    Args:
+        history: Previous conversation messages from Redis
+        current_message: Current user message being processed
+    
+    Returns:
+        List of messages in LLM API format: [{"role": "user", "content": "..."}, ...]
+    """
+    messages = []
+    
+    # Add conversation history
+    for msg in history:
+        role = msg.get("role", "user")
+        content = msg.get("content", "")
+        # Skip system messages in history (they're summaries)
+        if role != "system":
+            messages.append({
+                "role": role,
+                "content": content
+            })
+    
+    # Add current message
+    current_role = current_message.get("role", "user")
+    current_content = current_message.get("content", "")
+    if current_role == "user":
+        messages.append({
+            "role": "user",
+            "content": current_content
+        })
+    
+    return messages
+
+def call_llm_api(messages: List[Dict[str, str]], model: str = None) -> Dict[str, Any]:
+    """
+    Call LLM API with formatted messages.
+    
+    Args:
+        messages: Formatted messages for LLM
+        model: Model name to use (defaults to LLM_MODEL env var)
+    
+    Returns:
+        Response from LLM API with 'content' and 'usage' fields
+    
+    TODO: Replace placeholder with actual LLM implementation
+    """
+    if model is None:
+        model = os.getenv("LLM_MODEL", "gpt-3.5-turbo")
+    
+    # ==========================================================================
+    # TODO: Uncomment below and add 'from llm_service import LLMClient' at top
+    # ==========================================================================
+    # api_key = os.getenv("LLM_API_KEY")
+    # if not api_key:
+    #     raise ValueError("LLM_API_KEY environment variable not set")
+    # 
+    # client = LLMClient(api_key=api_key)
+    # response = client.chat.completions.create(
+    #     model=model,
+    #     messages=messages,
+    #     temperature=0.7
+    # )
+    # 
+    # return {
+    #     "content": response.choices[0].message.content,
+    #     "usage": {
+    #         "prompt_tokens": response.usage.prompt_tokens,
+    #         "completion_tokens": response.usage.completion_tokens,
+    #         "total_tokens": response.usage.total_tokens
+    #     }
+    # }
+    # ==========================================================================
+    
+    # TODO: Remove this placeholder block
+    log(f"[PLACEHOLDER] Would call LLM API with {len(messages)} messages, model: {model}")
+    if messages:
+        last_msg = messages[-1].get('content', '')
+        log(f"[PLACEHOLDER] Last user message: {last_msg[:50]}...")
+    
+    return {
+        "content": "[LLM response placeholder - implement call_llm_api()]",
+        "usage": {
+            "prompt_tokens": 100,
+            "completion_tokens": 50,
+            "total_tokens": 150
+        }
+    }
 
 def parse_input(req) -> Dict[str, Any]:
     """Parse input from request body."""
@@ -117,14 +273,55 @@ def handle(req, context):
     if metadata.get('tokens'):
         log(f"Token count: {metadata.get('tokens')}")
     
-    # In a real implementation, this handler would:
-    # - Perform additional business logic
-    # - Integrate with LLM services
-    # - Handle conversation context
-    # 
-    # For now, this is a placeholder that validates and acknowledges receipt.
-    # The actual state management (storing in Redis) is handled by the connector.
+    # If this is a user query, retrieve history and call LLM
+    if role == "user" and event_type in ["user_query", "conversation_event", None]:
+        # Retrieve conversation history from Redis
+        history = get_conversation_history(session_id, limit=20)  # Get last 20 messages
+        log(f"Retrieved {len(history)} previous messages from conversation history")
+        
+        # Format messages for LLM API
+        formatted_messages = format_messages_for_llm(history, data)
+        log(f"Formatted {len(formatted_messages)} messages for LLM API")
+        
+        # Get model from metadata or use default
+        model = metadata.get('model', 'gpt-3.5-turbo')
+        
+        # Call LLM API
+        try:
+            llm_response = call_llm_api(formatted_messages, model=model)
+            
+            response_content = llm_response.get("content", "")
+            usage = llm_response.get("usage", {})
+            
+            log(f"LLM response generated: {len(response_content)} characters")
+            if usage:
+                log(f"Token usage: {usage.get('total_tokens', 0)} total")
+            
+            return {
+                "statusCode": 200,
+                "body": json.dumps({
+                    "status": "success",
+                    "session_id": session_id,
+                    "role": role,
+                    "event_type": event_type,
+                    "message": "Conversation event processed",
+                    "llm_response": {
+                        "content": response_content,
+                        "usage": usage
+                    }
+                })
+            }
+        except Exception as e:
+            log(f"ERROR: LLM API call failed: {e}")
+            return {
+                "statusCode": 500,
+                "body": json.dumps({
+                    "error": "LLM API call failed",
+                    "details": str(e)
+                })
+            }
     
+    # For assistant messages or other events, just acknowledge
     return {
         "statusCode": 200,
         "body": json.dumps({

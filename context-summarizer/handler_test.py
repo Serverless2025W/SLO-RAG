@@ -6,19 +6,22 @@ import importlib.util
 import json
 import os
 import pytest
+from unittest.mock import patch, Mock
 
-def load_handler():
-    handler_path = os.path.join(os.path.dirname(__file__), "handler.py")
-    spec = importlib.util.spec_from_file_location("context_summarizer_handler", handler_path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+# Mock redis before loading the handler
+with patch.dict('sys.modules', {'redis': Mock()}):
+    def load_handler():
+        handler_path = os.path.join(os.path.dirname(__file__), "handler.py")
+        spec = importlib.util.spec_from_file_location("context_summarizer_handler", handler_path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
 
-handler = load_handler()
-handle = handler.handle
-validate_summarization_trigger = handler.validate_summarization_trigger
-parse_input = handler.parse_input
-generate_summary_placeholder = handler.generate_summary_placeholder
+    handler = load_handler()
+    handle = handler.handle
+    validate_summarization_trigger = handler.validate_summarization_trigger
+    parse_input = handler.parse_input
+    format_messages_for_summarization = handler.format_messages_for_summarization
 
 
 class MockRequest:
@@ -128,28 +131,48 @@ class TestValidateSummarizationTrigger:
         assert is_valid is True
 
 
-class TestGenerateSummaryPlaceholder:
-    """Tests for summary generation."""
+class TestFormatMessagesForSummarization:
+    """Tests for message formatting for summarization."""
     
-    def test_generate_summary(self):
-        """Test summary generation."""
-        summary = generate_summary_placeholder(
-            "test-123",
-            "token_threshold",
-            25,
-            4500
-        )
-        assert "test-123" in summary
-        assert "token_threshold" in summary
-        assert "25" in summary
-        assert "4500" in summary
+    def test_format_basic_history(self):
+        """Test formatting basic conversation history."""
+        history = [
+            {"role": "user", "content": "Hello", "timestamp": "2026-01-12T20:00:00Z"},
+            {"role": "assistant", "content": "Hi there", "timestamp": "2026-01-12T20:00:01Z"}
+        ]
+        messages = format_messages_for_summarization(history)
+        assert len(messages) == 2
+        assert messages[0]["role"] == "user"
+        assert messages[1]["role"] == "assistant"
+    
+    def test_format_skips_system_messages(self):
+        """Test that system messages (previous summaries) are skipped."""
+        history = [
+            {"role": "system", "content": "Previous summary", "timestamp": "2026-01-12T19:00:00Z"},
+            {"role": "user", "content": "Hello", "timestamp": "2026-01-12T20:00:00Z"},
+            {"role": "assistant", "content": "Hi", "timestamp": "2026-01-12T20:00:01Z"}
+        ]
+        messages = format_messages_for_summarization(history)
+        assert len(messages) == 2
+        assert messages[0]["content"] == "Hello"
 
 
 class TestHandle:
     """Tests for main handler function."""
     
-    def test_handle_valid_token_threshold_trigger(self):
+    @patch.object(handler, 'get_conversation_history')
+    @patch.object(handler, 'call_llm_for_summarization')
+    def test_handle_valid_token_threshold_trigger(self, mock_llm, mock_history):
         """Test handling valid token threshold trigger."""
+        mock_history.return_value = [
+            {"role": "user", "content": "Hello", "timestamp": "2026-01-12T20:00:00Z"},
+            {"role": "assistant", "content": "Hi", "timestamp": "2026-01-12T20:00:01Z"}
+        ]
+        mock_llm.return_value = {
+            "summary": "Test summary of conversation",
+            "usage": {"total_tokens": 100}
+        }
+        
         data = {
             "session_id": "test-123",
             "trigger_reason": "token_threshold",
@@ -171,8 +194,18 @@ class TestHandle:
         assert response_body["compressed_from"]["messages"] == 25
         assert response_body["compressed_from"]["tokens"] == 4500
     
-    def test_handle_message_threshold_trigger(self):
+    @patch.object(handler, 'get_conversation_history')
+    @patch.object(handler, 'call_llm_for_summarization')
+    def test_handle_message_threshold_trigger(self, mock_llm, mock_history):
         """Test handling message threshold trigger."""
+        mock_history.return_value = [
+            {"role": "user", "content": "Hello", "timestamp": "2026-01-12T20:00:00Z"}
+        ]
+        mock_llm.return_value = {
+            "summary": "Test summary",
+            "usage": {"total_tokens": 50}
+        }
+        
         data = {
             "session_id": "test-123",
             "trigger_reason": "message_threshold",
@@ -190,8 +223,18 @@ class TestHandle:
         assert response_body["status"] == "success"
         assert response_body["trigger_reason"] == "message_threshold"
     
-    def test_handle_manual_trigger(self):
+    @patch.object(handler, 'get_conversation_history')
+    @patch.object(handler, 'call_llm_for_summarization')
+    def test_handle_manual_trigger(self, mock_llm, mock_history):
         """Test handling manual trigger."""
+        mock_history.return_value = [
+            {"role": "user", "content": "Hello", "timestamp": "2026-01-12T20:00:00Z"}
+        ]
+        mock_llm.return_value = {
+            "summary": "Manual summary",
+            "usage": {}
+        }
+        
         data = {
             "session_id": "test-123",
             "trigger_reason": "manual",
@@ -255,6 +298,54 @@ class TestHandle:
         assert result["statusCode"] == 400
         response_body = json.loads(result["body"])
         assert "error" in response_body
+    
+    @patch.object(handler, 'get_conversation_history')
+    def test_handle_no_conversation_history(self, mock_history):
+        """Test handling when no conversation history exists."""
+        mock_history.return_value = []
+        
+        data = {
+            "session_id": "test-123",
+            "trigger_reason": "token_threshold",
+            "current_tokens": 4500,
+            "current_messages": 25,
+            "threshold": 4000
+        }
+        req = MockRequest(json.dumps(data))
+        context = MockContext()
+        
+        result = handle(req, context)
+        
+        assert result["statusCode"] == 404
+        response_body = json.loads(result["body"])
+        assert "error" in response_body
+        assert "No conversation history" in response_body["error"]
+    
+    @patch.object(handler, 'get_conversation_history')
+    @patch.object(handler, 'call_llm_for_summarization')
+    def test_handle_llm_failure(self, mock_llm, mock_history):
+        """Test handling LLM summarization failure."""
+        mock_history.return_value = [
+            {"role": "user", "content": "Hello", "timestamp": "2026-01-12T20:00:00Z"}
+        ]
+        mock_llm.side_effect = Exception("LLM API error")
+        
+        data = {
+            "session_id": "test-123",
+            "trigger_reason": "token_threshold",
+            "current_tokens": 4500,
+            "current_messages": 25,
+            "threshold": 4000
+        }
+        req = MockRequest(json.dumps(data))
+        context = MockContext()
+        
+        result = handle(req, context)
+        
+        assert result["statusCode"] == 500
+        response_body = json.loads(result["body"])
+        assert "error" in response_body
+        assert "LLM summarization failed" in response_body["error"]
 
 
 if __name__ == "__main__":

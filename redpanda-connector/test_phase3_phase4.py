@@ -13,7 +13,11 @@ import pytest
 import json
 from unittest.mock import Mock, patch, MagicMock
 import sys
+import os
 from datetime import datetime
+
+# Add the redpanda-connector directory to the path
+sys.path.insert(0, os.path.dirname(__file__))
 
 # Import schemas
 from message_schemas import (
@@ -28,9 +32,6 @@ from redis_schemas import (
     RedisKeyPatterns,
     RedisConversationStore
 )
-
-# Import connector functions (will need to be implemented/updated)
-sys.path.insert(0, '.')
 
 
 class TestPhase3ConversationStateManagement:
