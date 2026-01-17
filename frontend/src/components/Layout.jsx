@@ -18,10 +18,20 @@ export default function Layout({ children }) {
     <div className="page">
       <div className="hero">
         <div className="session-bar">
-          <span className="session-user">Session: {username}</span>
-          <button className="logout-btn" onClick={handleLogout}>
-            Logout
-          </button>
+          <div className="user-menu">
+            <button className="user-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="user-icon">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                <circle cx="12" cy="7" r="4" />
+              </svg>
+              <span>{username}</span>
+            </button>
+            <div className="user-dropdown">
+              <button className="logout-btn" onClick={handleLogout}>
+                Logout
+              </button>
+            </div>
+          </div>
         </div>
         <h1>SLO-RAG Platform</h1>
         <p className="subtitle">

@@ -76,8 +76,10 @@ export default function ChatPage() {
 
   return (
     <Layout>
-      <div className="chat-container">
-        <div className="message-list">
+      <div className="chat-section">
+        <h2>Ask Anything</h2>
+        <div className="chat-container">
+          <div className="message-list">
           {messages.length === 0 && !isLoading && (
             <div className="chat-empty">
               <p>No messages yet. Start a conversation!</p>
@@ -113,22 +115,26 @@ export default function ChatPage() {
         {error && <div className="status error">{error}</div>}
 
         <div className="chat-input-area">
-          <textarea
+          <input
+            type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Type a message..."
-            rows={2}
             disabled={isLoading}
-            className="chat-textarea"
+            className="chat-input"
           />
           <button
             onClick={handleSend}
             disabled={isLoading || !input.trim()}
-            className="chat-send-btn"
+            className={`chat-send-btn ${input.trim() ? 'active' : ''}`}
           >
-            {isLoading ? 'Sending...' : 'Send'}
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <line x1="22" y1="2" x2="11" y2="13" />
+              <polygon points="22 2 15 22 11 13 2 9 22 2" />
+            </svg>
           </button>
+        </div>
         </div>
       </div>
     </Layout>
