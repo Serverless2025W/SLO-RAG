@@ -30,6 +30,7 @@ KAFKA_BROKER = os.getenv("KAFKA_BROKER", "redpanda:9092")
 SUMMARIZATION_TOKEN_THRESHOLD = int(os.getenv("SUMMARIZATION_TOKEN_THRESHOLD", "4000"))
 SUMMARIZATION_MESSAGE_THRESHOLD = int(os.getenv("SUMMARIZATION_MESSAGE_THRESHOLD", "20"))
 CONVERSATION_TTL = int(os.getenv("CONVERSATION_TTL", "86400"))  # 24 hours
+SUMMARIZATION_WORKER_TOPIC = os.getenv("SUMMARIZATION_WORKER_TOPIC", "summarization-triggers")
 
 # Redis client (initialized lazily)
 redis_client: Optional[redis.Redis] = None
@@ -188,7 +189,7 @@ def trigger_summarization(session_id: str, reason: str, tokens: int, messages: i
             "threshold": SUMMARIZATION_TOKEN_THRESHOLD if reason == "token_threshold" else SUMMARIZATION_MESSAGE_THRESHOLD
         }
         
-        future = producer.send("summarization-triggers", trigger_data)
+        future = producer.send(SUMMARIZATION_WORKER_TOPIC, trigger_data)
         record = future.get(timeout=10)
         
         log(f"Published summarization trigger for session {session_id}")
