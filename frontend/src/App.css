@@ -317,6 +317,25 @@
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 8px;
+  flex-wrap: wrap;
+}
+
+.document-main {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+}
+
+.document-main:hover .document-name {
+  color: #ffffff;
 }
 
 .document-icon {
@@ -344,6 +363,13 @@
 .document-chunks {
   color: #888;
   font-size: 0.75rem;
+}
+
+.document-toggle {
+  color: #00d4ff;
+  font-size: 0.8rem;
+  margin-left: auto;
+  flex-shrink: 0;
 }
 
 .document-delete-btn {
@@ -374,6 +400,55 @@
 
 .document-delete-btn:hover svg {
   color: #ff4444;
+}
+
+.document-chunks-panel {
+  width: 100%;
+  margin-top: 0.5rem;
+  padding: 0.75rem;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.document-chunks-loading,
+.document-chunks-error,
+.document-chunks-empty {
+  color: #a0a0a0;
+  font-size: 0.85rem;
+}
+
+.document-chunks-error {
+  color: #ff8f8f;
+}
+
+.document-chunks-list {
+  max-height: 280px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding-right: 0.25rem;
+}
+
+.document-chunk-row {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+}
+
+.document-chunk-index {
+  display: block;
+  color: #00d4ff;
+  font-size: 0.75rem;
+  margin-bottom: 0.25rem;
+}
+
+.document-chunk-text {
+  color: #d6d6d6;
+  font-size: 0.85rem;
+  white-space: pre-wrap;
 }
 
 .chunks-section,

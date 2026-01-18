@@ -113,7 +113,7 @@ def store_message(session_id: str, role: str, content: str, timestamp: str, toke
     client = init_redis_client()
     if client is None:
         return False
-    
+
     try:
         # Store message
         key = f"conversation:{session_id}"
@@ -295,9 +295,9 @@ def handle(req, context):
     timestamp = data.get('timestamp', utc_now_iso())
     metadata = data.get('metadata', {})
     tokens = metadata.get('tokens', 0) if isinstance(metadata, dict) else 0
-    
+
     log(f"Processing {role} message for session {session_id}")
-    
+
     # Step 1: Store message in Redis
     store_message(session_id, role, content, timestamp, tokens)
     

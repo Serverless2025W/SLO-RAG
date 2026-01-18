@@ -199,27 +199,33 @@ def store_message_via_conversation_manager(session_id: str, role: str, content: 
         role: Message role ('user' or 'assistant')
         content: The message content
     """
+    timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    message_data = {
+        "session_id": session_id,
+        "role": role,
+        "content": content,
+        "timestamp": timestamp
+    }
     try:
-        timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-        message_data = {
-            "session_id": session_id,
-            "role": role,
-            "content": content,
-            "timestamp": timestamp
-        }
-
         producer = get_kafka_producer()
-        if producer is None:
-            log(f"WARNING: Cannot store message - Kafka producer unavailable")
-            return False
-
-        future = producer.send(CONVERSATION_EVENTS_TOPIC, message_data)
-        future.get(timeout=10)  # Wait for message to be sent
-        
-        log(f"Stored {role} message for session {session_id} via Kafka (topic: {CONVERSATION_EVENTS_TOPIC})")
-        return True
+        if producer is not None:
+            future = producer.send(CONVERSATION_EVENTS_TOPIC, message_data)
+            future.get(timeout=10)  # Wait for message to be sent
+            log(f"Stored {role} message for session {session_id} via Kafka (topic: {CONVERSATION_EVENTS_TOPIC})")
+            return True
+        log("WARNING: Kafka producer unavailable, falling back to direct HTTP storage")
     except Exception as e:
         log(f"Error storing message via Kafka: {e}")
+
+    try:
+        response = requests.post(CONVERSATION_MANAGER_URL, json=message_data, timeout=5)
+        if response.status_code == 200:
+            log(f"Stored {role} message for session {session_id} via HTTP")
+            return True
+        log(f"WARNING: HTTP storage failed: {response.status_code} {response.text[:200]}")
+        return False
+    except Exception as e:
+        log(f"Error storing message via HTTP: {e}")
         return False
 
 

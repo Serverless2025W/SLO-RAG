@@ -127,34 +127,80 @@ export async function getAllDocuments() {
   const { endpoint, collection } = config.qdrant;
   const url = `${endpoint}/collections/${collection}/points/scroll`;
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      limit: 1000,
-      with_payload: true,
-      with_vector: false,
-    }),
-  });
-
-  if (!response.ok) {
-    if (response.status === 404) return [];
-    throw new Error(`Failed to fetch documents: ${response.status}`);
-  }
-
-  const data = await response.json();
-  const points = data.result?.points || [];
-
+  let nextOffset = null;
   const fileMap = {};
-  points.forEach(point => {
-    const filename = point.payload.filename;
-    if (!fileMap[filename]) {
-      fileMap[filename] = { filename, chunkCount: 0 };
+
+  do {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        limit: 1000,
+        with_payload: true,
+        with_vector: false,
+        offset: nextOffset,
+      }),
+    });
+
+    if (!response.ok) {
+      if (response.status === 404) return [];
+      throw new Error(`Failed to fetch documents: ${response.status}`);
     }
-    fileMap[filename].chunkCount++;
-  });
+
+    const data = await response.json();
+    const points = data.result?.points || [];
+    nextOffset = data.result?.next_page_offset ?? null;
+
+    points.forEach(point => {
+      const filename = point.payload?.filename;
+      if (!filename) return;
+      if (!fileMap[filename]) {
+        fileMap[filename] = { filename, chunkCount: 0 };
+      }
+      fileMap[filename].chunkCount++;
+    });
+  } while (nextOffset);
 
   return Object.values(fileMap);
+}
+
+export async function getAllChunksByFilename(
+  filename,
+  { pageSize = 200, maxPages = 50 } = {}
+) {
+  const { endpoint, collection } = config.qdrant;
+  const url = `${endpoint}/collections/${collection}/points/scroll`;
+  let nextOffset = null;
+  const allPoints = [];
+
+  for (let page = 0; page < maxPages; page++) {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        limit: pageSize,
+        with_payload: true,
+        with_vector: false,
+        offset: nextOffset,
+        filter: {
+          must: [{ key: 'filename', match: { value: filename } }],
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch chunks: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const points = data.result?.points || [];
+    nextOffset = data.result?.next_page_offset ?? null;
+
+    allPoints.push(...points);
+    if (!nextOffset || points.length === 0) break;
+  }
+
+  return allPoints;
 }
 
 export async function sendMessage(sessionId, content) {
