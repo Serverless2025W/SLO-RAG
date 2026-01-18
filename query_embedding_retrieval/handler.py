@@ -5,41 +5,10 @@ import threading
 from datetime import datetime, timezone
 from fastembed import TextEmbedding
 from qdrant_client import QdrantClient
-import redis
+from kafka import KafkaProducer
 
 def log(message):
     print(message, flush=True)
-
-# Redis configuration
-REDIS_HOST = os.environ.get("REDIS_HOST", "redis")
-REDIS_PORT = int(os.environ.get("REDIS_PORT", 6379))
-REDIS_DB = int(os.environ.get("REDIS_DB", 0))
-REDIS_PASSWORD = os.environ.get("REDIS_PASSWORD", None)
-CONVERSATION_TTL = int(os.environ.get("CONVERSATION_TTL", 86400))  # 24 hours
-
-# Lazy Redis client initialization
-_redis_client = None
-
-def get_redis_client():
-    """Get or create Redis client with lazy initialization."""
-    global _redis_client
-    if _redis_client is None:
-        try:
-            _redis_client = redis.Redis(
-                host=REDIS_HOST,
-                port=REDIS_PORT,
-                db=REDIS_DB,
-                password=REDIS_PASSWORD,
-                decode_responses=True,
-                socket_timeout=5,
-                socket_connect_timeout=5
-            )
-            _redis_client.ping()
-            log("Redis client connected successfully")
-        except redis.ConnectionError as e:
-            log(f"Redis connection failed: {e}")
-            _redis_client = None
-    return _redis_client
 
 log("Loading FastEmbed Model...")
 embedding_model = TextEmbedding()
@@ -52,6 +21,11 @@ COLLECTION_NAME = os.environ.get("COLLECTION_NAME", "embeddings")
 TOP_K = int(os.environ.get("TOP_K", 5))
 
 ROUTER_URL = os.environ.get("ROUTER_URL", "http://gateway:8080/function/router")
+KAFKA_BROKER = os.environ.get("KAFKA_BROKER", "redpanda:9092")
+CONVERSATION_EVENTS_TOPIC = os.environ.get("CONVERSATION_EVENTS_TOPIC", "conversation-events")
+
+# Lazy Kafka producer initialization
+kafka_producer = None
 
 DEFAULT_PROMPT_TEMPLATE = """Answer the question based on the context below. If the context doesn't contain relevant information, answer based on your general knowledge.
 
@@ -77,10 +51,16 @@ def parse_input(req):
     else:
         body = req
 
-    if isinstance(body, bytes):
+    # If body is already a dict, use it directly
+    if isinstance(body, dict):
+        event = body
+    elif isinstance(body, bytes):
         body = body.decode('utf-8')
-
-    event = json.loads(body)
+        event = json.loads(body)
+    else:
+        # Assume it's a string
+        event = json.loads(body)
+    
     query = event.get('query', '')
     session_id = event.get('session_id', None)
 
@@ -134,8 +114,29 @@ def call_router(prompt):
         raise
 
 
-def store_message_to_redis(session_id: str, role: str, content: str):
-    """Store a message to Redis conversation history.
+def get_kafka_producer():
+    """Get or create Kafka producer with lazy initialization."""
+    global kafka_producer
+    if kafka_producer is not None:
+        return kafka_producer
+    
+    try:
+        producer = KafkaProducer(
+            bootstrap_servers=KAFKA_BROKER,
+            value_serializer=lambda v: json.dumps(v).encode('utf-8'),
+            acks='all',
+            retries=3
+        )
+        kafka_producer = producer
+        log(f"Connected to Kafka at {KAFKA_BROKER}")
+        return kafka_producer
+    except Exception as e:
+        log(f"WARNING: Could not connect to Kafka: {e}")
+        return None
+
+
+def store_message_via_conversation_manager(session_id: str, role: str, content: str):
+    """Store a message via conversation-manager service using Kafka.
 
     Args:
         session_id: The session identifier for the conversation
@@ -143,31 +144,31 @@ def store_message_to_redis(session_id: str, role: str, content: str):
         content: The message content
     """
     try:
-        client = get_redis_client()
-        if client is None:
-            log(f"Cannot store message: Redis client unavailable")
-            return False
-
-        timestamp = datetime.now(timezone.utc).isoformat()
+        timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         message_data = {
+            "session_id": session_id,
             "role": role,
             "content": content,
             "timestamp": timestamp
         }
 
-        conversation_key = f"conversation:{session_id}"
-        client.rpush(conversation_key, json.dumps(message_data))
-        client.expire(conversation_key, CONVERSATION_TTL)
+        producer = get_kafka_producer()
+        if producer is None:
+            log(f"WARNING: Cannot store message - Kafka producer unavailable")
+            return False
 
-        log(f"Stored {role} message for session {session_id}")
+        future = producer.send(CONVERSATION_EVENTS_TOPIC, message_data)
+        future.get(timeout=10)  # Wait for message to be sent
+        
+        log(f"Stored {role} message for session {session_id} via Kafka (topic: {CONVERSATION_EVENTS_TOPIC})")
         return True
     except Exception as e:
-        log(f"Error storing message to Redis: {e}")
+        log(f"Error storing message via Kafka: {e}")
         return False
 
 
 def store_conversation_async(session_id: str, user_query: str, assistant_response: str):
-    """Asynchronously store both user query and assistant response to Redis.
+    """Asynchronously store both user query and assistant response via conversation-manager.
 
     This function runs in a background thread to avoid blocking the response.
 
@@ -179,9 +180,9 @@ def store_conversation_async(session_id: str, user_query: str, assistant_respons
     def _store():
         try:
             # Store user message
-            store_message_to_redis(session_id, "user", user_query)
+            store_message_via_conversation_manager(session_id, "user", user_query)
             # Store assistant response
-            store_message_to_redis(session_id, "assistant", assistant_response)
+            store_message_via_conversation_manager(session_id, "assistant", assistant_response)
             log(f"Async storage complete for session {session_id}")
         except Exception as e:
             log(f"Async storage failed: {e}")
@@ -233,7 +234,7 @@ def handle(req, context):
         answer, backend = call_router(prompt)
         log(f"Got response from {backend}")
 
-        # Store conversation to Redis asynchronously if session_id is provided
+        # Store conversation via conversation-manager asynchronously if session_id is provided
         if session_id:
             store_conversation_async(session_id, query, answer)
 

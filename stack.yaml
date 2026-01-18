@@ -46,10 +46,8 @@ functions:
       COLLECTION_NAME: "embeddings"
       TOP_K: "5"
       ROUTER_URL: "http://gateway:8080/function/router"
-      REDIS_HOST: "redis"
-      REDIS_PORT: "6379"
-      REDIS_DB: "0"
-      CONVERSATION_TTL: "86400"
+      KAFKA_BROKER: "redpanda:9092"
+      CONVERSATION_EVENTS_TOPIC: "conversation-events"
       PYTHONUNBUFFERED: "1"
     limits:
       memory: 2048M

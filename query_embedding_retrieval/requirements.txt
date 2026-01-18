@@ -1,4 +1,4 @@
 fastembed
 qdrant-client
 requests
-redis
+kafka-python

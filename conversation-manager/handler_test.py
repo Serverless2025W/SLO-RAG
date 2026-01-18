@@ -273,6 +273,59 @@ class TestHandle:
         req = json.dumps({"session_id": "test-123"})
         result = handle(req, None)
         assert result["statusCode"] == 400
+    
+    @patch('handler.init_redis_client')
+    @patch('handler.init_kafka_producer')
+    def test_handle_message_from_query_embedding_retrieval(self, mock_kafka, mock_redis):
+        """Test that conversation-manager accepts messages from query-embedding-retrieval format."""
+        mock_client = MagicMock()
+        mock_client.llen.return_value = 5
+        mock_client.get.return_value = "100"
+        mock_client.hgetall.return_value = {}
+        mock_redis.return_value = mock_client
+        mock_kafka.return_value = None
+        
+        # Simulate the format sent by query-embedding-retrieval
+        req = json.dumps({
+            "session_id": "test-123",
+            "role": "user",
+            "content": "What is machine learning?",
+            "timestamp": "2026-01-17T10:00:00Z"
+            # Note: no metadata field, which is optional
+        })
+        
+        result = handle(req, None)
+        
+        assert result["statusCode"] == 200
+        body = json.loads(result["body"])
+        assert body["status"] == "success"
+        assert body["session_id"] == "test-123"
+    
+    @patch('handler.init_redis_client')
+    @patch('handler.init_kafka_producer')
+    def test_handle_assistant_message_from_query_embedding_retrieval(self, mock_kafka, mock_redis):
+        """Test that conversation-manager accepts assistant messages from query-embedding-retrieval."""
+        mock_client = MagicMock()
+        mock_client.llen.return_value = 5
+        mock_client.get.return_value = "100"
+        mock_client.hgetall.return_value = {}
+        mock_redis.return_value = mock_client
+        mock_kafka.return_value = None
+        
+        # Assistant message format from query-embedding-retrieval
+        req = json.dumps({
+            "session_id": "test-123",
+            "role": "assistant",
+            "content": "Machine learning is a subset of AI.",
+            "timestamp": "2026-01-17T10:00:01Z"
+        })
+        
+        result = handle(req, None)
+        
+        assert result["statusCode"] == 200
+        body = json.loads(result["body"])
+        assert body["status"] == "success"
+        assert "llm_response" not in body  # Assistant messages don't trigger LLM
 
 
 if __name__ == "__main__":
