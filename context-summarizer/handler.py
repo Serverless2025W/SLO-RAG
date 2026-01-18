@@ -14,6 +14,8 @@ import os
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timezone
 import redis
+from langchain_groq import ChatGroq
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 
 # Configuration
 REDIS_HOST = os.getenv("REDIS_HOST", "redis")
@@ -21,6 +23,8 @@ REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 REDIS_DB = int(os.getenv("REDIS_DB", "0"))
 REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", None)
 CONVERSATION_TTL = int(os.getenv("CONVERSATION_TTL", "86400"))  # 24 hours
+MODEL = os.getenv("SUMMARIZATION_MODEL", "llama-3.3-70b-versatile")
+GROQ_API_KEY = os.getenv("LLM_API_KEY")
 
 # Redis client (initialized lazily)
 redis_client: Optional[redis.Redis] = None
@@ -139,45 +143,52 @@ def call_llm_for_summarization(messages: List[Dict[str, str]], model: str = None
     # ==========================================================================
     # TODO: Uncomment below and add 'from openai import OpenAI' at top
     # ==========================================================================
-    # api_key = os.getenv("LLM_API_KEY")
-    # if not api_key:
-    #     raise ValueError("LLM_API_KEY environment variable not set")
-    # 
-    # client = OpenAI(api_key=api_key)
-    # 
-    # system_prompt = {
-    #     "role": "system",
-    #     "content": "You are a helpful assistant that summarizes conversations. "
-    #                "Create a concise summary that captures the key points, context, "
-    #                "and important information. Keep it brief but preserve essential context."
-    # }
-    # 
-    # response = client.chat.completions.create(
-    #     model=model,
-    #     messages=[system_prompt] + messages,
-    #     temperature=0.3,
-    #     max_tokens=500
-    # )
-    # 
-    # return {
-    #     "summary": response.choices[0].message.content,
-    #     "usage": {
-    #         "prompt_tokens": response.usage.prompt_tokens,
-    #         "completion_tokens": response.usage.completion_tokens,
-    #         "total_tokens": response.usage.total_tokens
-    #     }
-    # }
-    # ==========================================================================
     
-    # TODO: Remove this placeholder block
-    log(f"[PLACEHOLDER] Would summarize {len(messages)} messages with model: {model}")
+    if not GROQ_API_KEY:
+        raise ValueError("LLM_API_KEY environment variable not set")
     
-    # Create a simple placeholder summary
-    msg_count = len(messages)
+    llm = ChatGroq(model_name=model, temperature=0, max_tokens=500, api_key=GROQ_API_KEY)    
+    
+    system_instruction = (
+        "You are a helpful assistant that summarizes conversations. "
+        "Create a concise summary that captures the key points, context, "
+        "and important information. Keep it brief but preserve essential context."
+    )
+    
+    # Start with the system message
+    formatted_messages = [SystemMessage(content=system_instruction)]
+
+    for msg in messages:
+        if msg['role'] == 'user':
+            formatted_messages.append(HumanMessage(content=msg['content']))
+        elif msg['role'] == 'assistant':
+            formatted_messages.append(AIMessage(content=msg['content']))
+    
+    response = llm.invoke(formatted_messages)
+    
+    # 4. Extract data
+    # LangChain stores usage stats in response_metadata
+    token_usage = response.response_metadata.get('token_usage', {})
+    
     return {
-        "summary": f"[Summary placeholder] Conversation with {msg_count} messages summarized.",
-        "usage": {"prompt_tokens": 200, "completion_tokens": 100, "total_tokens": 300}
+        "summary": response.content,
+        "usage": {
+            "prompt_tokens": token_usage.get('prompt_tokens', 0),
+            "completion_tokens": token_usage.get('completion_tokens', 0),
+            "total_tokens": token_usage.get('total_tokens', 0)
+        }
     }
+    #==========================================================================
+    
+    # # TODO: Remove this placeholder block
+    # log(f"[PLACEHOLDER] Would summarize {len(messages)} messages with model: {model}")
+    
+    # # Create a simple placeholder summary
+    # msg_count = len(messages)
+    # return {
+    #     "summary": f"[Summary placeholder] Conversation with {msg_count} messages summarized.",
+    #     "usage": {"prompt_tokens": 200, "completion_tokens": 100, "total_tokens": 300}
+    # }
 
 def parse_input(req) -> Dict[str, Any]:
     """Parse input from request body."""
@@ -275,9 +286,8 @@ def handle(req, context):
     log(f"Formatted {len(formatted_messages)} messages (excluding system)")
     
     # Step 3: Call LLM for summarization
-    model = os.getenv("SUMMARIZATION_MODEL", "gpt-3.5-turbo")
     try:
-        llm_response = call_llm_for_summarization(formatted_messages, model=model)
+        llm_response = call_llm_for_summarization(formatted_messages, model=MODEL)
         
         summary_text = llm_response.get("summary", "")
         usage = llm_response.get("usage", {})

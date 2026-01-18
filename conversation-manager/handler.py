@@ -215,46 +215,6 @@ def format_messages_for_llm(history: List[Dict[str, Any]], current_message: Dict
     
     return messages
 
-def call_llm_api(messages: List[Dict[str, str]], model: str = None) -> Dict[str, Any]:
-    """
-    Call LLM API with formatted messages.
-    
-    TODO: Uncomment the LLMClient implementation below.
-    """
-    if model is None:
-        model = os.getenv("LLM_MODEL", "gpt-3.5-turbo")
-    
-    # ==========================================================================
-    # TODO: Uncomment below and add 'from openai import OpenAI' at top
-    # ==========================================================================
-    # api_key = os.getenv("LLM_API_KEY")
-    # if not api_key:
-    #     raise ValueError("LLM_API_KEY environment variable not set")
-    # 
-    # client = OpenAI(api_key=api_key)
-    # response = client.chat.completions.create(
-    #     model=model,
-    #     messages=messages,
-    #     temperature=0.7
-    # )
-    # 
-    # return {
-    #     "content": response.choices[0].message.content,
-    #     "usage": {
-    #         "prompt_tokens": response.usage.prompt_tokens,
-    #         "completion_tokens": response.usage.completion_tokens,
-    #         "total_tokens": response.usage.total_tokens
-    #     }
-    # }
-    # ==========================================================================
-    
-    # TODO: Remove this placeholder block
-    log(f"[PLACEHOLDER] Would call LLM with {len(messages)} messages, model: {model}")
-    return {
-        "content": f"[LLM placeholder response for {len(messages)} messages]",
-        "usage": {"prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150}
-    }
-
 def parse_input(req) -> Dict[str, Any]:
     """Parse input from request body."""
     if hasattr(req, 'body'):
@@ -298,7 +258,6 @@ def handle(req, context):
     2. Store message in Redis
     3. Check summarization threshold
     4. Trigger summarization if needed
-    5. For user messages: retrieve history, call LLM, return response
     """
     log("=" * 50)
     log("Conversation Manager Handler Invoked")
@@ -348,47 +307,6 @@ def handle(req, context):
         log(f"Threshold exceeded: {reason} ({current_messages} msgs, {current_tokens} tokens)")
         # Step 3: Trigger summarization
         trigger_summarization(session_id, reason, current_tokens, current_messages)
-    
-    # Step 4: For user messages, generate LLM response
-    if role == "user":
-        # Retrieve history
-        history = get_conversation_history(session_id, limit=20)
-        log(f"Retrieved {len(history)} messages from history")
-        
-        # Format for LLM
-        formatted_messages = format_messages_for_llm(history, data)
-        log(f"Formatted {len(formatted_messages)} messages for LLM")
-        
-        # Call LLM
-        model = metadata.get('model', 'gpt-3.5-turbo')
-        try:
-            llm_response = call_llm_api(formatted_messages, model=model)
-            
-            response_content = llm_response.get("content", "")
-            usage = llm_response.get("usage", {})
-            
-            log(f"LLM response: {len(response_content)} chars, {usage.get('total_tokens', 0)} tokens")
-            
-            return {
-                "statusCode": 200,
-                "body": json.dumps({
-                    "status": "success",
-                    "session_id": session_id,
-                    "message": "Conversation processed",
-                    "llm_response": {
-                        "content": response_content,
-                        "usage": usage
-                    },
-                    "state": {
-                        "messages": current_messages,
-                        "tokens": current_tokens,
-                        "summarization_triggered": should_trigger
-                    }
-                })
-            }
-        except Exception as e:
-            log(f"ERROR: LLM call failed: {e}")
-            return {"statusCode": 500, "body": json.dumps({"error": "LLM call failed", "details": str(e)})}
     
     # For assistant messages, just acknowledge storage
     return {
