@@ -80,14 +80,27 @@ def get_conversation_history(session_id: str) -> List[Dict[str, Any]]:
         return []
 
 def replace_conversation_with_summary(session_id: str, summary: str, timestamp: str) -> bool:
-    """Replace entire conversation history with a summary message."""
+    """Replace entire conversation history with a summary message, but keep the last assistant response."""
     client = init_redis_client()
     if client is None:
         return False
     
     try:
-        # Delete existing conversation
+        # Get current conversation to keep last assistant message
         conv_key = f"conversation:{session_id}"
+        current_messages = client.lrange(conv_key, 0, -1)
+        
+        # Find the last assistant message to keep
+        last_assistant = None
+        if current_messages:
+            parsed_messages = [json.loads(msg) for msg in current_messages]
+            # Look for last assistant message
+            for msg in reversed(parsed_messages):
+                if msg.get('role') == 'assistant':
+                    last_assistant = msg
+                    break
+        
+        # Delete existing conversation
         client.delete(conv_key)
         
         # Store summary as system message
@@ -97,6 +110,11 @@ def replace_conversation_with_summary(session_id: str, summary: str, timestamp: 
             "timestamp": timestamp
         }
         client.rpush(conv_key, json.dumps(summary_message))
+        
+        # If we have a last assistant message, keep it after the summary
+        if last_assistant:
+            client.rpush(conv_key, json.dumps(last_assistant))
+        
         client.expire(conv_key, CONVERSATION_TTL)
         
         # Reset token count
@@ -139,11 +157,7 @@ def call_llm_for_summarization(messages: List[Dict[str, str]], model: str = None
     """
     if model is None:
         model = os.getenv("SUMMARIZATION_MODEL", "gpt-3.5-turbo")
-    
-    # ==========================================================================
-    # TODO: Uncomment below and add 'from openai import OpenAI' at top
-    # ==========================================================================
-    
+
     if not GROQ_API_KEY:
         raise ValueError("LLM_API_KEY environment variable not set")
     

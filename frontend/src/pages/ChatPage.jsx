@@ -34,16 +34,33 @@ export default function ChatPage() {
     }
   };
 
+  // Get system message (summary) if present
+  const systemMessage = messages.find(msg => msg.role === 'system');
+  const hasSystemMessage = !!systemMessage;
+
   const handleSend = async () => {
     const trimmed = input.trim();
     if (!trimmed || isLoading) return;
 
+    // Check for system messages BEFORE sending (in case summarization happened)
+    const currentHistory = await getConversationHistory(username).catch(() => []);
+    const currentSystemMsg = currentHistory.find(msg => msg.role === 'system');
+    
     const userMessage = {
       role: 'user',
       content: trimmed
     };
 
-    setMessages(prev => [...prev, userMessage]);
+    // If we found a system message, update messages before adding new one
+    if (currentSystemMsg) {
+      // Reload full history to get the correct state (includes summary + last assistant if any)
+      setMessages(currentHistory);
+      // Then add the new user message
+      setMessages(prev => [...prev, userMessage]);
+    } else {
+      setMessages(prev => [...prev, userMessage]);
+    }
+
     setInput('');
     setIsLoading(true);
     setError(null);
@@ -78,6 +95,20 @@ export default function ChatPage() {
     <Layout>
       <div className="chat-section">
         <h2>Ask Anything</h2>
+        {hasSystemMessage && (
+          <div className="summarization-notice">
+            <span className="summarization-icon">ℹ️</span>
+            <div className="summarization-content">
+              <span className="summarization-text">
+                Previous conversation was summarized to optimize performance. Context has been preserved.
+              </span>
+              <details className="summarization-details">
+                <summary>View summary</summary>
+                <div className="summarization-summary-text">{systemMessage.content}</div>
+              </details>
+            </div>
+          </div>
+        )}
         <div className="chat-container">
           <div className="message-list">
           {messages.length === 0 && !isLoading && (
@@ -85,7 +116,7 @@ export default function ChatPage() {
               <p>No messages yet. Start a conversation!</p>
             </div>
           )}
-          {messages.map((msg, index) => (
+          {messages.filter(msg => msg.role !== 'system').map((msg, index) => (
             <div
               key={index}
               className={`message ${msg.role}`}

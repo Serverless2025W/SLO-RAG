@@ -185,6 +185,65 @@
   border: 1px solid #ff4444;
 }
 
+.summarization-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.875rem 1rem;
+  margin-bottom: 1rem;
+  background: rgba(255, 193, 7, 0.1);
+  border: 1px solid rgba(255, 193, 7, 0.3);
+  border-radius: 8px;
+  color: #ffd700;
+  font-size: 0.875rem;
+}
+
+.summarization-icon {
+  font-size: 1.1rem;
+  flex-shrink: 0;
+  margin-top: 0.1rem;
+}
+
+.summarization-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.summarization-text {
+  color: #ffd700;
+  line-height: 1.4;
+}
+
+.summarization-details {
+  margin-top: 0.25rem;
+}
+
+.summarization-details summary {
+  cursor: pointer;
+  color: #ffd700;
+  font-size: 0.8rem;
+  text-decoration: underline;
+}
+
+.summarization-details summary:hover {
+  opacity: 0.8;
+}
+
+.summarization-summary-text {
+  margin-top: 0.5rem;
+  padding: 0.75rem;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+  color: #fff;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
 .file-statuses {
   margin-top: 1rem;
   display: flex;

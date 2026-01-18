@@ -21,6 +21,7 @@ COLLECTION_NAME = os.environ.get("COLLECTION_NAME", "embeddings")
 TOP_K = int(os.environ.get("TOP_K", 5))
 
 ROUTER_URL = os.environ.get("ROUTER_URL", "http://gateway:8080/function/router")
+CONVERSATION_MANAGER_URL = os.environ.get("CONVERSATION_MANAGER_URL", "http://gateway:8080/function/conversation-manager")
 KAFKA_BROKER = os.environ.get("KAFKA_BROKER", "redpanda:9092")
 CONVERSATION_EVENTS_TOPIC = os.environ.get("CONVERSATION_EVENTS_TOPIC", "conversation-events")
 
@@ -94,14 +95,69 @@ def format_results(results):
     return formatted
 
 
-def format_prompt(query, results):
-    """Format the RAG prompt with query and retrieved context."""
+def get_conversation_history(session_id: str):
+    """Fetch conversation history from conversation-manager."""
+    if not session_id:
+        return []
+    
+    try:
+        response = requests.post(
+            CONVERSATION_MANAGER_URL,
+            json={
+                "action": "get_history",
+                "session_id": session_id
+            },
+            timeout=5
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            # Handle different response formats
+            messages = data.get('messages', [])
+            if not messages and data.get('body'):
+                body = data['body']
+                if isinstance(body, str):
+                    body = json.loads(body)
+                messages = body.get('messages', [])
+            
+            # Filter out system messages (summaries) for context, but keep user/assistant
+            conversation_messages = [msg for msg in messages if msg.get('role') in ['user', 'assistant']]
+            log(f"Retrieved {len(conversation_messages)} conversation messages for context")
+            return conversation_messages
+        else:
+            log(f"Failed to fetch conversation history: {response.status_code}")
+            return []
+    except Exception as e:
+        log(f"Warning: Could not fetch conversation history: {e}")
+        return []
+
+
+def format_prompt(query, results, conversation_history=None):
+    """Format the RAG prompt with query, retrieved context, and conversation history."""
+    # Format context from vector DB
     if results:
         context_text = "\n\n".join([chunk['text'] for chunk in results])
     else:
         context_text = "No relevant context found."
-
-    return PROMPT_TEMPLATE.format(context=context_text, query=query)
+    
+    # Format conversation history if available
+    conversation_context = ""
+    if conversation_history:
+        conv_lines = []
+        for msg in conversation_history[-10:]:  # Last 10 messages for context
+            role = msg.get('role', 'user')
+            content = msg.get('content', '')
+            if role == 'user':
+                conv_lines.append(f"User: {content}")
+            elif role == 'assistant':
+                conv_lines.append(f"Assistant: {content}")
+        if conv_lines:
+            conversation_context = "\n\nPrevious Conversation:\n" + "\n".join(conv_lines)
+    
+    # Combine context and conversation history
+    full_context = context_text + conversation_context
+    
+    return PROMPT_TEMPLATE.format(context=full_context, query=query)
 
 
 def call_router(prompt):
@@ -217,7 +273,7 @@ def handle(req, context):
     try:
         results = search_similar(query_vector)
         formatted = format_results(results)
-        log(f"Retrieved {len(formatted)} chunks")
+        log(f"Retrieved {len(formatted)} chunks from vector DB")
 
         for i, chunk in enumerate(formatted):
             log(f"--- Result {i+1} (score: {chunk['score']:.4f}) ---")
@@ -226,9 +282,19 @@ def handle(req, context):
     except Exception as e:
         log(f"Search error (continuing without context): {e}")
 
+    # Retrieve conversation history if session_id is provided
+    conversation_history = []
+    if session_id:
+        try:
+            conversation_history = get_conversation_history(session_id)
+            if conversation_history:
+                log(f"Using {len(conversation_history)} conversation messages for context")
+        except Exception as e:
+            log(f"Warning: Could not retrieve conversation history: {e}")
+
     # Format prompt and call router for inference
     try:
-        prompt = format_prompt(query, formatted)
+        prompt = format_prompt(query, formatted, conversation_history)
         log(f"Formatted prompt ({len(prompt)} chars), calling router...")
 
         answer, backend = call_router(prompt)

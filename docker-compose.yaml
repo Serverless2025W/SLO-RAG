@@ -176,6 +176,7 @@ services:
     environment:
       - BROKER=redpanda:9092
       - ROUTE_MAP=text-chunks:embedding-generation;rag-queries:inference;conversation-events:conversation-manager;summarization-triggers:context-summarizer
+
       - GATEWAY_URL=http://gateway:8080
     depends_on:
       - gateway
