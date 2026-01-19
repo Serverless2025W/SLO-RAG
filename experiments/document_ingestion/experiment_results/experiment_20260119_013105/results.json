@@ -1,0 +1,60 @@
+{
+  "results": [
+    {
+      "rate": 1.0,
+      "files_uploaded": 31,
+      "files_indexed": 31,
+      "ingestion_throughput": 0.9832437058935839,
+      "avg_e2e_latency": 1.6272229686860116,
+      "p95_e2e_latency": 2.534597635269165,
+      "chunks_stored": 93
+    },
+    {
+      "rate": 2.0,
+      "files_uploaded": 60,
+      "files_indexed": 60,
+      "ingestion_throughput": 1.8490961518648323,
+      "avg_e2e_latency": 2.426850203673045,
+      "p95_e2e_latency": 3.5037050247192383,
+      "chunks_stored": 180
+    },
+    {
+      "rate": 5.0,
+      "files_uploaded": 150,
+      "files_indexed": 150,
+      "ingestion_throughput": 3.736320060135962,
+      "avg_e2e_latency": 7.505213624636332,
+      "p95_e2e_latency": 11.011054277420044,
+      "chunks_stored": 450
+    },
+    {
+      "rate": 10.0,
+      "files_uploaded": 300,
+      "files_indexed": 300,
+      "ingestion_throughput": 3.563559230819888,
+      "avg_e2e_latency": 30.58534828901291,
+      "p95_e2e_latency": 52.53281211853027,
+      "chunks_stored": 900
+    },
+    {
+      "rate": 15.0,
+      "files_uploaded": 449,
+      "files_indexed": 449,
+      "ingestion_throughput": 3.3725177964170845,
+      "avg_e2e_latency": 57.38007666061078,
+      "p95_e2e_latency": 99.8870141506195,
+      "chunks_stored": 1347
+    }
+  ],
+  "config": {
+    "rates": [
+      1.0,
+      2.0,
+      5.0,
+      10.0,
+      15.0
+    ],
+    "duration": 30.0,
+    "num_files": 50
+  }
+}

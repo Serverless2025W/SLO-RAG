@@ -1,0 +1,4 @@
+minio
+qdrant-client
+reportlab
+matplotlib
