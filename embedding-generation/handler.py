@@ -12,7 +12,7 @@ def log(message):
 embedding_model = None
 client = None
 
-COLLECTION_NAME = "documents"
+COLLECTION_NAME = os.environ.get("COLLECTION_NAME", "embeddings")
 VECTOR_SIZE = 384  # BGE-Small embedding size
 
 def get_embedding_model():
