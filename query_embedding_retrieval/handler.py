@@ -5,6 +5,7 @@ import threading
 from datetime import datetime, timezone
 from fastembed import TextEmbedding
 from qdrant_client import QdrantClient
+from qdrant_client.http import models
 from kafka import KafkaProducer
 
 def log(message):
@@ -15,9 +16,37 @@ embedding_model = TextEmbedding()
 
 QDRANT_HOST = os.environ.get("QDRANT_HOST", "qdrant")
 QDRANT_PORT = int(os.environ.get("QDRANT_PORT", 6333))
-client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
-
 COLLECTION_NAME = os.environ.get("COLLECTION_NAME", "embeddings")
+VECTOR_SIZE = 384  # BGE-Small embedding size
+
+# Lazy client initialization
+_qdrant_client = None
+
+def get_qdrant_client():
+    """Initialize Qdrant client and ensure collection exists."""
+    global _qdrant_client
+    if _qdrant_client is not None:
+        return _qdrant_client
+
+    _qdrant_client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
+
+    # Ensure collection exists
+    try:
+        _qdrant_client.get_collection(COLLECTION_NAME)
+        log(f"Collection '{COLLECTION_NAME}' exists")
+    except Exception:
+        log(f"Creating collection '{COLLECTION_NAME}'...")
+        _qdrant_client.create_collection(
+            collection_name=COLLECTION_NAME,
+            vectors_config=models.VectorParams(
+                size=VECTOR_SIZE,
+                distance=models.Distance.COSINE
+            )
+        )
+        log(f"Collection '{COLLECTION_NAME}' created successfully")
+
+    return _qdrant_client
+
 TOP_K = int(os.environ.get("TOP_K", 5))
 
 ROUTER_URL = os.environ.get("ROUTER_URL", "http://gateway:8080/function/router")
@@ -75,6 +104,7 @@ def generate_embedding(text):
 
 
 def search_similar(query_vector, top_k=TOP_K):
+    client = get_qdrant_client()
     results = client.query_points(
         collection_name=COLLECTION_NAME,
         query=query_vector,
