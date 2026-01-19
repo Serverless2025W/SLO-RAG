@@ -17,33 +17,23 @@ export default function UploadPage() {
   const [chunks, setChunks] = useState([]);
   const [processedFiles, setProcessedFiles] = useState([]);
   const [documents, setDocuments] = useState([]);
-  const [pendingDocuments, setPendingDocuments] = useState([]);
   const [expandedFilename, setExpandedFilename] = useState(null);
   const [documentChunks, setDocumentChunks] = useState({});
   const [loadingChunks, setLoadingChunks] = useState({});
   const [chunksError, setChunksError] = useState({});
 
-  const loadDocuments = useCallback(async () => {
+  useEffect(() => {
+    loadDocuments();
+  }, []);
+
+  const loadDocuments = async () => {
     try {
       const docs = await getAllDocuments();
       setDocuments(docs);
-      setPendingDocuments(prev =>
-        prev.filter(pending => !docs.some(doc => doc.filename === pending.filename))
-      );
     } catch (error) {
       console.error('Failed to load documents:', error);
     }
-  }, []);
-
-  useEffect(() => {
-    loadDocuments();
-  }, [loadDocuments]);
-
-  useEffect(() => {
-    if (pendingDocuments.length === 0) return;
-    const interval = setInterval(loadDocuments, 10000);
-    return () => clearInterval(interval);
-  }, [pendingDocuments.length, loadDocuments]);
+  };
 
   const handleDelete = async (filename) => {
     try {
@@ -54,7 +44,6 @@ export default function UploadPage() {
         delete next[filename];
         return next;
       });
-      setPendingDocuments(prev => prev.filter(doc => doc.filename !== filename));
       setExpandedFilename(prev => (prev === filename ? null : prev));
     } catch (error) {
       console.error('Failed to delete document:', error);
@@ -115,23 +104,15 @@ export default function UploadPage() {
 
       try {
         await uploadToMinio(file);
-        setPendingDocuments(prev => {
-          if (prev.some(doc => doc.filename === file.name)) return prev;
-          return [...prev, { filename: file.name, status: 'processing' }];
-        });
         updateFileStatus(file.name, { type: 'info', message: 'Processing...' });
 
-        const fetchedChunks = await pollForChunks(file.name, 60, 2000);
+        const fetchedChunks = await pollForChunks(file.name, 20, 2000);
 
         if (fetchedChunks.length > 0) {
           allChunks.push(...fetchedChunks);
           updateFileStatus(file.name, { type: 'success', message: `${fetchedChunks.length} chunks` });
-          setPendingDocuments(prev => prev.filter(doc => doc.filename !== file.name));
         } else {
-          updateFileStatus(file.name, {
-            type: 'warning',
-            message: 'Still processing; will refresh documents automatically.',
-          });
+          updateFileStatus(file.name, { type: 'warning', message: 'No chunks found' });
         }
         processed.push(file.name);
       } catch (error) {
@@ -161,13 +142,6 @@ export default function UploadPage() {
     acc[filename].push(chunk);
     return acc;
   }, {});
-
-  const visibleDocuments = [
-    ...documents,
-    ...pendingDocuments.filter(
-      pending => !documents.some(doc => doc.filename === pending.filename)
-    ),
-  ];
 
   return (
     <Layout>
@@ -208,14 +182,12 @@ export default function UploadPage() {
         )}
       </div>
 
-      {visibleDocuments.length > 0 && (
+      {documents.length > 0 && (
         <div className="documents-section">
-          <h2>Project Files ({visibleDocuments.length})</h2>
+          <h2>Project Files ({documents.length})</h2>
           <div className="documents-list">
-            {visibleDocuments.map((doc) => {
-              const isPending = doc.status === 'processing';
-              return (
-                <div key={doc.filename} className="document-item">
+            {documents.map((doc) => (
+              <div key={doc.filename} className="document-item">
                 <button
                   className="document-main"
                   onClick={() => toggleDocumentChunks(doc.filename)}
@@ -228,9 +200,7 @@ export default function UploadPage() {
                   </svg>
                   <div className="document-info">
                     <span className="document-name">{doc.filename}</span>
-                    <span className="document-chunks">
-                      {isPending ? 'processing...' : `${doc.chunkCount} chunks`}
-                    </span>
+                    <span className="document-chunks">{doc.chunkCount} chunks</span>
                   </div>
                   <span className="document-toggle">{expandedFilename === doc.filename ? 'Hide' : 'Chunks'}</span>
                 </button>
@@ -276,9 +246,8 @@ export default function UploadPage() {
                     )}
                   </div>
                 )}
-                </div>
-              );
-            })}
+              </div>
+            ))}
           </div>
         </div>
       )}

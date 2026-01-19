@@ -5,7 +5,6 @@ import threading
 from datetime import datetime, timezone
 from fastembed import TextEmbedding
 from qdrant_client import QdrantClient
-from qdrant_client.http import models
 from kafka import KafkaProducer
 
 def log(message):
@@ -16,37 +15,9 @@ embedding_model = TextEmbedding()
 
 QDRANT_HOST = os.environ.get("QDRANT_HOST", "qdrant")
 QDRANT_PORT = int(os.environ.get("QDRANT_PORT", 6333))
+client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
+
 COLLECTION_NAME = os.environ.get("COLLECTION_NAME", "embeddings")
-VECTOR_SIZE = 384  # BGE-Small embedding size
-
-# Lazy client initialization
-_qdrant_client = None
-
-def get_qdrant_client():
-    """Initialize Qdrant client and ensure collection exists."""
-    global _qdrant_client
-    if _qdrant_client is not None:
-        return _qdrant_client
-
-    _qdrant_client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
-
-    # Ensure collection exists
-    try:
-        _qdrant_client.get_collection(COLLECTION_NAME)
-        log(f"Collection '{COLLECTION_NAME}' exists")
-    except Exception:
-        log(f"Creating collection '{COLLECTION_NAME}'...")
-        _qdrant_client.create_collection(
-            collection_name=COLLECTION_NAME,
-            vectors_config=models.VectorParams(
-                size=VECTOR_SIZE,
-                distance=models.Distance.COSINE
-            )
-        )
-        log(f"Collection '{COLLECTION_NAME}' created successfully")
-
-    return _qdrant_client
-
 TOP_K = int(os.environ.get("TOP_K", 5))
 
 ROUTER_URL = os.environ.get("ROUTER_URL", "http://gateway:8080/function/router")
@@ -104,7 +75,6 @@ def generate_embedding(text):
 
 
 def search_similar(query_vector, top_k=TOP_K):
-    client = get_qdrant_client()
     results = client.query_points(
         collection_name=COLLECTION_NAME,
         query=query_vector,
@@ -229,33 +199,27 @@ def store_message_via_conversation_manager(session_id: str, role: str, content: 
         role: Message role ('user' or 'assistant')
         content: The message content
     """
-    timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-    message_data = {
-        "session_id": session_id,
-        "role": role,
-        "content": content,
-        "timestamp": timestamp
-    }
     try:
+        timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        message_data = {
+            "session_id": session_id,
+            "role": role,
+            "content": content,
+            "timestamp": timestamp
+        }
+
         producer = get_kafka_producer()
-        if producer is not None:
-            future = producer.send(CONVERSATION_EVENTS_TOPIC, message_data)
-            future.get(timeout=10)  # Wait for message to be sent
-            log(f"Stored {role} message for session {session_id} via Kafka (topic: {CONVERSATION_EVENTS_TOPIC})")
-            return True
-        log("WARNING: Kafka producer unavailable, falling back to direct HTTP storage")
+        if producer is None:
+            log(f"WARNING: Cannot store message - Kafka producer unavailable")
+            return False
+
+        future = producer.send(CONVERSATION_EVENTS_TOPIC, message_data)
+        future.get(timeout=10)  # Wait for message to be sent
+        
+        log(f"Stored {role} message for session {session_id} via Kafka (topic: {CONVERSATION_EVENTS_TOPIC})")
+        return True
     except Exception as e:
         log(f"Error storing message via Kafka: {e}")
-
-    try:
-        response = requests.post(CONVERSATION_MANAGER_URL, json=message_data, timeout=5)
-        if response.status_code == 200:
-            log(f"Stored {role} message for session {session_id} via HTTP")
-            return True
-        log(f"WARNING: HTTP storage failed: {response.status_code} {response.text[:200]}")
-        return False
-    except Exception as e:
-        log(f"Error storing message via HTTP: {e}")
         return False
 
 
