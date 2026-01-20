@@ -9,6 +9,9 @@ export default function ChatPage() {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [isSummaryBlinking, setIsSummaryBlinking] = useState(false);
+  const lastSummaryKeyRef = useRef(null);
+  const summaryBlinkTimerRef = useRef(null);
   const messagesEndRef = useRef(null);
 
   const scrollToBottom = () => {
@@ -34,9 +37,39 @@ export default function ChatPage() {
     }
   };
 
-  // Get system message (summary) if present
-  const systemMessage = messages.find(msg => msg.role === 'system');
-  const hasSystemMessage = !!systemMessage;
+  // Summarization events (system messages)
+  const summaryMessages = messages.filter(msg => msg.role === 'system');
+  const hasSystemMessage = summaryMessages.length > 0;
+  const visibleMessages = messages.filter(msg => msg.role !== 'system');
+  const latestSummary = summaryMessages[summaryMessages.length - 1];
+
+  useEffect(() => {
+    if (!latestSummary) return;
+    const summaryKey = `${latestSummary.timestamp || ''}:${latestSummary.content || ''}`;
+    if (lastSummaryKeyRef.current === summaryKey) return;
+
+    lastSummaryKeyRef.current = summaryKey;
+    // Blink chat container to signal a summarization event.
+    // Force a class re-add so the CSS animation re-triggers even if multiple summaries happen quickly.
+    setIsSummaryBlinking(false);
+    requestAnimationFrame(() => setIsSummaryBlinking(true));
+
+    if (summaryBlinkTimerRef.current) {
+      clearTimeout(summaryBlinkTimerRef.current);
+    }
+    summaryBlinkTimerRef.current = setTimeout(() => {
+      setIsSummaryBlinking(false);
+      summaryBlinkTimerRef.current = null;
+    }, 2200);
+  }, [latestSummary]);
+
+  useEffect(() => {
+    return () => {
+      if (summaryBlinkTimerRef.current) {
+        clearTimeout(summaryBlinkTimerRef.current);
+      }
+    };
+  }, []);
 
   const handleSend = async () => {
     const trimmed = input.trim();
@@ -95,66 +128,48 @@ export default function ChatPage() {
     <Layout>
       <div className="chat-section">
         <h2>Ask Anything</h2>
-        {hasSystemMessage && (
-          <div className="summarization-notice">
-            <span className="summarization-icon">ℹ️</span>
-            <div className="summarization-content">
-              <span className="summarization-text">
-                Previous conversation was summarized to optimize performance. Context has been preserved.
-              </span>
-              <details className="summarization-details">
-                <summary>View summary</summary>
-                <div className="summarization-summary-text">{systemMessage.content}</div>
-              </details>
-            </div>
-          </div>
-        )}
-        <div className="chat-container">
+        <div className={`chat-container ${isSummaryBlinking ? 'chat-container--summary-blink' : ''}`}>
           <div className="message-list">
-          {messages.length === 0 && !isLoading && (
-            <div className="chat-empty">
-              <p>No messages yet. Start a conversation!</p>
-            </div>
-          )}
-          {messages.filter(msg => msg.role !== 'system').map((msg, index) => (
-            <div
-              key={index}
-              className={`message ${msg.role}`}
-            >
-              <div className="message-content">
-                {msg.content}
-              </div>
-              {msg.model && (
-                <div className="message-model">
-                  Model: {msg.model}
+            {visibleMessages.map((msg, index) => (
+              <div
+                key={index}
+                className={`message ${msg.role}`}
+              >
+                <div className="message-content">
+                  {msg.content}
                 </div>
-              )}
-              {msg.sources && msg.sources.length > 0 && (
-                <div className="message-sources">
-                  <details>
-                    <summary>Sources ({msg.sources.length})</summary>
-                    <ul>
-                      {msg.sources.map((src, i) => (
-                        <li key={i}>
-                          {src.filename} (chunk {src.chunk_index}, score: {src.score.toFixed(3)})
-                        </li>
-                      ))}
-                    </ul>
-                  </details>
-                </div>
-              )}
-            </div>
-          ))}
-          {isLoading && (
-            <div className="message assistant loading">
-              <div className="typing-indicator">
-                <span></span>
-                <span></span>
-                <span></span>
+                {msg.model && (
+                  <div className="message-model">
+                    Model: {msg.model}
+                  </div>
+                )}
+                {msg.sources && msg.sources.length > 0 && (
+                  <div className="message-sources">
+                    <details>
+                      <summary>Sources ({msg.sources.length})</summary>
+                      <ul>
+                        {msg.sources.map((src, i) => (
+                          <li key={i}>
+                            {src.filename} (chunk {src.chunk_index}, score: {src.score.toFixed(3)})
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                  </div>
+                )}
               </div>
-            </div>
-          )}
-          <div ref={messagesEndRef} />
+            ))}
+            {isLoading && (
+              <div className="message assistant loading">
+                <div className="typing-indicator">
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                </div>
+              </div>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
         </div>
 
         {error && <div className="status error">{error}</div>}
@@ -180,7 +195,35 @@ export default function ChatPage() {
             </svg>
           </button>
         </div>
-        </div>
+        {hasSystemMessage && (
+          <div className="summarization-log">
+            <div className="summarization-log-header">
+              <span>Summarization events</span>
+              <span className="summarization-log-meta">
+                {summaryMessages.length} total
+              </span>
+            </div>
+            <div className="summarization-log-list">
+              {[...summaryMessages]
+                .slice()
+                .reverse()
+                .map((msg, index) => {
+                  const timestamp = msg.timestamp
+                    ? new Date(msg.timestamp).toLocaleString()
+                    : 'Unknown time';
+                  return (
+                    <details key={`${msg.timestamp || index}-${index}`} className="summarization-log-item">
+                      <summary>
+                        <span className="summarization-log-title">Context summarized</span>
+                        <span className="summarization-log-time">{timestamp}</span>
+                      </summary>
+                      <div className="summarization-summary-text">{msg.content}</div>
+                    </details>
+                  );
+                })}
+            </div>
+          </div>
+        )}
       </div>
     </Layout>
   );

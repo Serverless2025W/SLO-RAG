@@ -27,8 +27,8 @@ REDIS_DB = int(os.getenv("REDIS_DB", "0"))
 REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", None)
 
 KAFKA_BROKER = os.getenv("KAFKA_BROKER", "redpanda:9092")
-SUMMARIZATION_TOKEN_THRESHOLD = int(os.getenv("SUMMARIZATION_TOKEN_THRESHOLD", "4000"))
-SUMMARIZATION_MESSAGE_THRESHOLD = int(os.getenv("SUMMARIZATION_MESSAGE_THRESHOLD", "20"))
+SUMMARIZATION_TOKEN_THRESHOLD = int(os.getenv("SUMMARIZATION_TOKEN_THRESHOLD", "5000"))
+SUMMARIZATION_MESSAGE_THRESHOLD = int(os.getenv("SUMMARIZATION_MESSAGE_THRESHOLD", "3"))
 CONVERSATION_TTL = int(os.getenv("CONVERSATION_TTL", "86400"))  # 24 hours
 SUMMARIZATION_WORKER_TOPIC = os.getenv("SUMMARIZATION_WORKER_TOPIC", "summarization-triggers")
 
@@ -113,7 +113,7 @@ def store_message(session_id: str, role: str, content: str, timestamp: str, toke
     client = init_redis_client()
     if client is None:
         return False
-    
+
     try:
         # Store message
         key = f"conversation:{session_id}"
@@ -295,9 +295,9 @@ def handle(req, context):
     timestamp = data.get('timestamp', utc_now_iso())
     metadata = data.get('metadata', {})
     tokens = metadata.get('tokens', 0) if isinstance(metadata, dict) else 0
-    
+
     log(f"Processing {role} message for session {session_id}")
-    
+
     # Step 1: Store message in Redis
     store_message(session_id, role, content, timestamp, tokens)
     

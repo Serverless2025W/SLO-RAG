@@ -1,5 +1,11 @@
 import { useState, useCallback, useEffect } from 'react';
-import { uploadToMinio, pollForChunks, getAllDocuments, deleteDocument } from '../api';
+import {
+  uploadToMinio,
+  pollForChunks,
+  getAllDocuments,
+  deleteDocument,
+  getAllChunksByFilename,
+} from '../api';
 import Layout from '../components/Layout';
 
 const MAX_FILES = 10;
@@ -11,6 +17,10 @@ export default function UploadPage() {
   const [chunks, setChunks] = useState([]);
   const [processedFiles, setProcessedFiles] = useState([]);
   const [documents, setDocuments] = useState([]);
+  const [expandedFilename, setExpandedFilename] = useState(null);
+  const [documentChunks, setDocumentChunks] = useState({});
+  const [loadingChunks, setLoadingChunks] = useState({});
+  const [chunksError, setChunksError] = useState({});
 
   useEffect(() => {
     loadDocuments();
@@ -29,8 +39,36 @@ export default function UploadPage() {
     try {
       await deleteDocument(filename);
       setDocuments(prev => prev.filter(doc => doc.filename !== filename));
+      setDocumentChunks(prev => {
+        const next = { ...prev };
+        delete next[filename];
+        return next;
+      });
+      setExpandedFilename(prev => (prev === filename ? null : prev));
     } catch (error) {
       console.error('Failed to delete document:', error);
+    }
+  };
+
+  const toggleDocumentChunks = async (filename) => {
+    if (expandedFilename === filename) {
+      setExpandedFilename(null);
+      return;
+    }
+
+    setExpandedFilename(filename);
+
+    if (documentChunks[filename]?.length) return;
+
+    setLoadingChunks(prev => ({ ...prev, [filename]: true }));
+    setChunksError(prev => ({ ...prev, [filename]: null }));
+    try {
+      const fetched = await getAllChunksByFilename(filename);
+      setDocumentChunks(prev => ({ ...prev, [filename]: fetched }));
+    } catch (error) {
+      setChunksError(prev => ({ ...prev, [filename]: error.message }));
+    } finally {
+      setLoadingChunks(prev => ({ ...prev, [filename]: false }));
     }
   };
 
@@ -150,17 +188,28 @@ export default function UploadPage() {
           <div className="documents-list">
             {documents.map((doc) => (
               <div key={doc.filename} className="document-item">
-                <svg className="document-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                  <polyline points="14 2 14 8 20 8" />
-                </svg>
-                <div className="document-info">
-                  <span className="document-name">{doc.filename}</span>
-                  <span className="document-chunks">{doc.chunkCount} chunks</span>
-                </div>
+                <button
+                  className="document-main"
+                  onClick={() => toggleDocumentChunks(doc.filename)}
+                  type="button"
+                  title="Show chunks"
+                >
+                  <svg className="document-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                    <polyline points="14 2 14 8 20 8" />
+                  </svg>
+                  <div className="document-info">
+                    <span className="document-name">{doc.filename}</span>
+                    <span className="document-chunks">{doc.chunkCount} chunks</span>
+                  </div>
+                  <span className="document-toggle">{expandedFilename === doc.filename ? 'Hide' : 'Chunks'}</span>
+                </button>
                 <button
                   className="document-delete-btn"
-                  onClick={() => handleDelete(doc.filename)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDelete(doc.filename);
+                  }}
                   title="Delete document"
                 >
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -170,6 +219,33 @@ export default function UploadPage() {
                     <line x1="14" y1="11" x2="14" y2="17" />
                   </svg>
                 </button>
+                {expandedFilename === doc.filename && (
+                  <div className="document-chunks-panel">
+                    {loadingChunks[doc.filename] && (
+                      <div className="document-chunks-loading">Loading chunks...</div>
+                    )}
+                    {chunksError[doc.filename] && (
+                      <div className="document-chunks-error">{chunksError[doc.filename]}</div>
+                    )}
+                    {!loadingChunks[doc.filename] && !chunksError[doc.filename] && (
+                      <div className="document-chunks-list">
+                        {(documentChunks[doc.filename] || [])
+                          .sort((a, b) => a.payload.chunk_index - b.payload.chunk_index)
+                          .map((chunk, index) => (
+                            <div key={chunk.id || index} className="document-chunk-row">
+                              <span className="document-chunk-index">
+                                Chunk {chunk.payload.chunk_index + 1}
+                              </span>
+                              <p className="document-chunk-text">{chunk.payload.text}</p>
+                            </div>
+                          ))}
+                        {(documentChunks[doc.filename] || []).length === 0 && (
+                          <div className="document-chunks-empty">No chunks found.</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
           </div>
